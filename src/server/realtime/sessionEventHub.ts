@@ -11,7 +11,9 @@ export class SessionEventHub {
       this.socketsBySession.set(sessionId, sockets);
     }
     sockets.add(socket);
-    socket.on("close", () => sockets?.delete(socket));
+    socket.on("close", () => {
+      sockets.delete(socket);
+    });
   }
 
   addGlobal(socket: WebSocket): void {

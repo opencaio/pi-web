@@ -2,9 +2,9 @@ import type { FastifyInstance } from "fastify";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import type { PiSessionService } from "./piSessionService.js";
 
-export async function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionService, eventHub: SessionEventHub, prefix = ""): Promise<void> {
+export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionService, eventHub: SessionEventHub, prefix = ""): void {
   app.get<{ Querystring: { cwd?: string } }>(`${prefix}/sessions`, async (request, reply) => {
-    if (!request.query.cwd) return reply.code(400).send({ error: "cwd query parameter is required" });
+    if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
     return sessions.list(request.query.cwd);
   });
 
@@ -16,9 +16,10 @@ export async function registerSessionRoutes(app: FastifyInstance, sessions: PiSe
     }
   });
 
-  app.get<{ Params: { sessionId: string } }>(`${prefix}/sessions/:sessionId/messages`, async (request, reply) => {
+  app.get<{ Params: { sessionId: string }; Querystring: { before?: string; limit?: string } }>(`${prefix}/sessions/:sessionId/messages`, async (request, reply) => {
     try {
-      return await sessions.messages(request.params.sessionId);
+      const page = { ...optionalField("before", optionalNumber(request.query.before)), ...optionalField("limit", optionalNumber(request.query.limit)) };
+      return await sessions.messages(request.params.sessionId, page);
     } catch (error) {
       return reply.code(404).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -79,7 +80,7 @@ export async function registerSessionRoutes(app: FastifyInstance, sessions: PiSe
     return { aborted: true };
   });
 
-  app.post<{ Params: { sessionId: string } }>(`${prefix}/sessions/:sessionId/stop`, async (request) => {
+  app.post<{ Params: { sessionId: string } }>(`${prefix}/sessions/:sessionId/stop`, (request) => {
     sessions.stop(request.params.sessionId);
     return { stopped: true };
   });
@@ -91,4 +92,14 @@ export async function registerSessionRoutes(app: FastifyInstance, sessions: PiSe
   app.get(`${prefix}/sessions/events`, { websocket: true }, (socket) => {
     eventHub.addGlobal(socket);
   });
+}
+
+function optionalField<T>(key: string, value: T | undefined): Record<string, T> | object {
+  return value === undefined ? {} : { [key]: value };
+}
+
+function optionalNumber(value: string | undefined): number | undefined {
+  if (value === undefined || value === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }

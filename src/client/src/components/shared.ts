@@ -50,7 +50,9 @@ export const listStyles = css`
 
 export const chatStyles = css`
   :host { display: block; min-height: 0; color: #e6edf3; font: 14px system-ui, sans-serif; }
+  .chat-wrap { position: relative; height: 100%; min-height: 0; }
   .chat { height: 100%; overflow: auto; padding: 16px; box-sizing: border-box; }
+  .history-indicator { position: absolute; top: 10px; right: 18px; z-index: 2; display: grid; gap: 2px; max-width: min(320px, calc(100% - 36px)); border: 1px solid #30363d; border-radius: 8px; background: #0d1117dd; color: #8b949e; padding: 6px 8px; font-size: 12px; text-align: right; pointer-events: none; box-shadow: 0 8px 24px #0006; }
   .msg { margin: 0 0 14px; padding: 12px; border: 1px solid #30363d; border-radius: 10px; background: #161b22; }
   .msg.user { border-color: #2f81f7; background: #0d2847; }
   .msg.tool { border-color: #6e5200; background: #1f1a10; color: #d29922; }
@@ -64,6 +66,8 @@ export const chatStyles = css`
   .group-msg.tool { color: #d29922; }
   .group-msg.system { color: #ff7b72; }
   .group-msg.bash { color: #3fb950; }
+  .history-boundary { display: grid; gap: 3px; margin: 0 0 14px; color: #8b949e; font-size: 12px; text-align: center; }
+  .history-boundary small { color: #6e7681; }
   .label { display: block; margin-bottom: 8px; color: #8b949e; font-size: 12px; text-transform: uppercase; }
   formatted-text.part { display: block; }
   .part + .part { margin-top: 10px; }

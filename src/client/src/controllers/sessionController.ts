@@ -1,4 +1,6 @@
 import { api, type CommandResult, type SessionActivity, type SessionInfo, type SessionStatus } from "../api";
+
+const MESSAGE_PAGE_SIZE = 100;
 import { normalizeMessages, textMessage } from "../chatMessages";
 import { applyTranscriptEvent } from "../chatTranscript";
 import { isShellInput } from "../inputModes";
@@ -25,7 +27,7 @@ export class SessionController {
 
   clearActiveSession() {
     this.socket.close();
-    this.setState({ selectedSession: undefined, messages: [], status: undefined, activity: undefined });
+    this.setState({ selectedSession: undefined, messages: [], messagePageStart: 0, messagePageTotal: 0, isLoadingEarlierMessages: false, status: undefined, activity: undefined });
   }
 
   async startSession() {
@@ -40,19 +42,39 @@ export class SessionController {
     }
   }
 
-  async selectSession(session: SessionInfo, options?: { updateUrl?: boolean }) {
+  async selectSession(session: SessionInfo, options?: { updateUrl?: boolean | undefined }) {
     this.socket.close();
     try {
       const buffered: SessionUiEvent[] = [];
       this.socket.connect(session.id, (event) => buffered.push(event));
-      const [messages, status] = await Promise.all([api.messages(session.id), api.status(session.id)]);
-      this.setState({ selectedSession: session, messages: normalizeMessages(messages), status });
+      const [page, status] = await Promise.all([api.messages(session.id, { limit: MESSAGE_PAGE_SIZE }), api.status(session.id)]);
+      this.setState({ selectedSession: session, messages: normalizeMessages(page.messages), messagePageStart: page.start, messagePageTotal: page.total, isLoadingEarlierMessages: false, status });
       this.applyStatus(status);
       for (const event of buffered) this.applyEvent(event);
-      this.socket.setHandler((event) => this.applyEvent(event));
+      this.socket.setHandler((event) => { this.applyEvent(event); });
       if (options?.updateUrl !== false) this.updateUrl();
     } catch (error) {
       this.setState({ error: String(error) });
+    }
+  }
+
+  async loadEarlierMessages() {
+    const state = this.getState();
+    const session = state.selectedSession;
+    if (!session || state.isLoadingEarlierMessages || state.messagePageStart <= 0) return;
+    this.setState({ isLoadingEarlierMessages: true });
+    try {
+      const page = await api.messages(session.id, { before: state.messagePageStart, limit: MESSAGE_PAGE_SIZE });
+      if (this.getState().selectedSession?.id !== session.id) return;
+      this.setState({
+        messages: [...normalizeMessages(page.messages), ...this.getState().messages],
+        messagePageStart: page.start,
+        messagePageTotal: page.total,
+      });
+    } catch (error) {
+      this.setState({ error: String(error) });
+    } finally {
+      if (this.getState().selectedSession?.id === session.id) this.setState({ isLoadingEarlierMessages: false });
     }
   }
 
@@ -126,7 +148,7 @@ export class SessionController {
       return;
     }
     const message = result.type === "unsupported" ? result.message : result.message;
-    if (message) this.setState({ messages: [...this.getState().messages, textMessage(result.type === "unsupported" ? "system" : "tool", message)] });
+    if (message !== undefined && message !== "") this.setState({ messages: [...this.getState().messages, textMessage(result.type === "unsupported" ? "system" : "tool", message)] });
     if (result.type === "done" && result.session) {
       const current = this.getState().selectedSession;
       const sessions = [result.session, ...this.getState().sessions.filter((session) => session.id !== result.session?.id)];

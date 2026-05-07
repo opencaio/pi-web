@@ -6,14 +6,17 @@ export interface AppState {
   workspaces: Workspace[];
   sessions: SessionInfo[];
   messages: ChatLine[];
-  selectedProject?: Project;
-  selectedWorkspace?: Workspace;
-  selectedSession?: SessionInfo;
-  status?: SessionStatus;
-  activity?: SessionActivity;
+  messagePageStart: number;
+  messagePageTotal: number;
+  isLoadingEarlierMessages: boolean;
+  selectedProject: Project | undefined;
+  selectedWorkspace: Workspace | undefined;
+  selectedSession: SessionInfo | undefined;
+  status: SessionStatus | undefined;
+  activity: SessionActivity | undefined;
   sessionStatuses: Record<string, SessionStatus>;
   sessionActivities: Record<string, SessionActivity>;
-  commandDialog?: Extract<CommandResult, { type: "select" }>;
+  commandDialog: Extract<CommandResult, { type: "select" }> | undefined;
   error: string;
 }
 
@@ -23,8 +26,17 @@ export function initialAppState(): AppState {
     workspaces: [],
     sessions: [],
     messages: [],
+    messagePageStart: 0,
+    messagePageTotal: 0,
+    isLoadingEarlierMessages: false,
+    selectedProject: undefined,
+    selectedWorkspace: undefined,
+    selectedSession: undefined,
+    status: undefined,
+    activity: undefined,
     sessionStatuses: {},
     sessionActivities: {},
+    commandDialog: undefined,
     error: "",
   };
 }

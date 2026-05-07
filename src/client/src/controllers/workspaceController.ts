@@ -16,7 +16,7 @@ export class WorkspaceController {
     try {
       const workspaces = await api.workspaces(project.id);
       this.setState({ workspaces });
-      const workspace = target?.workspaceId ? workspaces.find((w) => w.id === target.workspaceId) : workspaces[0];
+      const workspace = target?.workspaceId !== undefined && target.workspaceId !== "" ? workspaces.find((w) => w.id === target.workspaceId) : workspaces[0];
       if (workspace) await this.selectWorkspace(workspace, { sessionId: target?.sessionId, updateUrl: target?.updateUrl });
       else if (target?.updateUrl !== false) this.updateUrl();
     } catch (error) {
@@ -24,14 +24,14 @@ export class WorkspaceController {
     }
   }
 
-  async selectWorkspace(workspace: Workspace, target?: { sessionId?: string; updateUrl?: boolean }) {
+  async selectWorkspace(workspace: Workspace, target?: { sessionId?: string | undefined; updateUrl?: boolean | undefined }) {
     this.sessions.clearActiveSession();
     this.setState({ selectedWorkspace: workspace, sessions: [], error: "" });
     try {
       const sessions = await api.sessions(workspace.path);
       this.setState({ sessions });
       const sessionId = target?.sessionId;
-      const session = sessionId ? sessions.find((s) => s.id === sessionId || s.id.startsWith(sessionId)) : sessions[0];
+      const session = sessionId !== undefined && sessionId !== "" ? sessions.find((s) => s.id === sessionId || s.id.startsWith(sessionId)) : sessions[0];
       if (session) await this.sessions.selectSession(session, { updateUrl: target?.updateUrl });
       else if (target?.updateUrl !== false) this.updateUrl();
     } catch (error) {

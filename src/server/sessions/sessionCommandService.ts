@@ -44,26 +44,23 @@ export class SessionCommandService {
 
   async respond(sessionId: string, requestId: string, value: string): Promise<ClientCommandResult> {
     const pending = this.pendingSelects.get(requestId);
-    if (!pending || pending.sessionId !== sessionId) return { type: "unsupported", message: "Command request expired" };
+    if (pending?.sessionId !== sessionId) return { type: "unsupported", message: "Command request expired" };
     this.pendingSelects.delete(requestId);
 
     const active = await this.getActive(sessionId);
-    if (pending.command === "fork") {
-      const result = await active.runtime.fork(value);
-      if (result.cancelled) return { type: "done", message: "Fork cancelled" };
-      return { type: "done", message: "Session forked", session: clientSessionFromRuntime(active.runtime) };
-    }
-    return { type: "unsupported", message: "Unsupported command response" };
+    const result = await active.runtime.fork(value);
+    if (result.cancelled) return { type: "done", message: "Fork cancelled" };
+    return { type: "done", message: "Session forked", session: clientSessionFromRuntime(active.runtime) };
   }
 
   private nameSession(active: ActiveSession, name: string): ClientCommandResult {
-    if (!name) return { type: "unsupported", message: "Usage: /name <session name>" };
+    if (name === "") return { type: "unsupported", message: "Usage: /name <session name>" };
     active.runtime.session.setSessionName(name);
     return { type: "done", message: `Session named: ${name}`, session: clientSessionFromRuntime(active.runtime) };
   }
 
   private compact(session: AgentSession, instructions: string): ClientCommandResult {
-    void session.compact(instructions || undefined)
+    void session.compact(instructions === "" ? undefined : instructions)
       .then((result) => {
         this.events.publish(session.sessionId, {
           type: "command.output",
@@ -71,7 +68,7 @@ export class SessionCommandService {
           message: formatCompactionResult(result),
         });
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
         this.events.publish(session.sessionId, { type: "command.output", level: "error", message: `Compaction failed: ${message}` });
         this.events.publish(session.sessionId, { type: "session.error", message });
@@ -81,7 +78,7 @@ export class SessionCommandService {
 
   private async clone(active: ActiveSession): Promise<ClientCommandResult> {
     const leafId = active.runtime.session.sessionManager.getLeafId();
-    if (!leafId) return { type: "unsupported", message: "Cannot clone: no current session entry" };
+    if (leafId === null || leafId === "") return { type: "unsupported", message: "Cannot clone: no current session entry" };
     const result = await active.runtime.fork(leafId, { position: "at" });
     if (result.cancelled) return { type: "done", message: "Clone cancelled" };
     return { type: "done", message: "Session cloned", session: clientSessionFromRuntime(active.runtime) };
@@ -113,7 +110,7 @@ function clientSessionFromRuntime(runtime: AgentSessionRuntime): ClientSession {
     id: session.sessionId,
     path: session.sessionFile ?? "",
     cwd: runtime.cwd,
-    name: session.sessionName,
+    ...(session.sessionName === undefined ? {} : { name: session.sessionName }),
     created: new Date().toISOString(),
     modified: new Date().toISOString(),
     messageCount: session.messages.length,
@@ -125,9 +122,9 @@ function formatSessionStats(session: AgentSession): string {
   const stats = session.getSessionStats();
   return [
     `Session: ${stats.sessionId}`,
-    `Messages: ${stats.totalMessages} (${stats.userMessages} user, ${stats.assistantMessages} assistant)`,
-    `Tool calls: ${stats.toolCalls}`,
-    `Tokens: ↑${stats.tokens.input} ↓${stats.tokens.output} total ${stats.tokens.total}`,
+    `Messages: ${String(stats.totalMessages)} (${String(stats.userMessages)} user, ${String(stats.assistantMessages)} assistant)`,
+    `Tool calls: ${String(stats.toolCalls)}`,
+    `Tokens: ↑${String(stats.tokens.input)} ↓${String(stats.tokens.output)} total ${String(stats.tokens.total)}`,
     `Cost: $${stats.cost.toFixed(4)}`,
   ].join("\n");
 }
@@ -135,7 +132,7 @@ function formatSessionStats(session: AgentSession): string {
 function formatCompactionResult(result: { summary: string; tokensBefore: number }): string {
   return [
     "Compaction complete.",
-    `Tokens before: ${result.tokensBefore}`,
+    `Tokens before: ${String(result.tokensBefore)}`,
     "",
     result.summary,
   ].join("\n");

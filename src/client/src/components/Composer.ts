@@ -9,13 +9,15 @@ export class Composer extends LitElement {
   @property({ attribute: false }) onStopSession?: () => void;
   @state() private draft = "";
 
-  render() {
+  override render() {
     return html`
       <footer>
         <textarea
           .value=${this.draft}
           ?disabled=${this.disabled}
-          @input=${(e: Event) => (this.draft = (e.target as HTMLTextAreaElement).value)}
+          @input=${(event: Event) => {
+            if (event.target instanceof HTMLTextAreaElement) this.draft = event.target.value;
+          }}
           @keydown=${(e: KeyboardEvent) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -24,7 +26,7 @@ export class Composer extends LitElement {
           }}
           placeholder="Message pi..."
         ></textarea>
-        <button ?disabled=${this.disabled} @click=${this.send}>Send</button>
+        <button ?disabled=${this.disabled} @click=${() => { this.send(); }}>Send</button>
         <button ?disabled=${this.disabled} @click=${() => this.onStopSession?.()}>Stop session</button>
       </footer>
     `;
@@ -32,10 +34,10 @@ export class Composer extends LitElement {
 
   private send() {
     const text = this.draft.trim();
-    if (!text || this.disabled) return;
+    if (text === "" || this.disabled) return;
     this.draft = "";
     this.onSend?.(text);
   }
 
-  static styles = composerStyles;
+  static override styles = composerStyles;
 }

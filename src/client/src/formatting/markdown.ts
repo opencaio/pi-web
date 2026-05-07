@@ -1,7 +1,7 @@
 import { marked } from "marked";
 
 export function toSafeMarkdownHtml(text: string): string {
-  const html = marked.parse(escapeHtml(text), { async: false, breaks: true, gfm: true }) as string;
+  const html = marked.parse(escapeHtml(text), { async: false, breaks: true, gfm: true });
   return sanitizeHtml(html);
 }
 
@@ -15,7 +15,7 @@ function escapeHtml(text: string): string {
 function sanitizeHtml(html: string): string {
   const template = document.createElement("template");
   template.innerHTML = html;
-  template.content.querySelectorAll("script, style, iframe, object, embed").forEach((node) => node.remove());
+  template.content.querySelectorAll("script, style, iframe, object, embed").forEach((node) => { node.remove(); });
   template.content.querySelectorAll("*").forEach((element) => {
     for (const attribute of [...element.attributes]) {
       const name = attribute.name.toLowerCase();

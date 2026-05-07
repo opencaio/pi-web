@@ -12,12 +12,13 @@ await app.register(fastifyWebsocket);
 
 const eventHub = new SessionEventHub();
 const sessions = new PiSessionService(eventHub);
-await registerSessionRoutes(app, sessions, eventHub);
+registerSessionRoutes(app, sessions, eventHub);
 
-const port = process.env.PI_WEB_SESSIOND_PORT ? Number(process.env.PI_WEB_SESSIOND_PORT) : undefined;
-const host = process.env.PI_WEB_SESSIOND_HOST ?? "127.0.0.1";
+const portValue = process.env["PI_WEB_SESSIOND_PORT"];
+const port = portValue !== undefined && portValue !== "" ? Number(portValue) : undefined;
+const host = process.env["PI_WEB_SESSIOND_HOST"] ?? "127.0.0.1";
 
-if (port) {
+if (port !== undefined) {
   await app.listen({ port, host });
 } else {
   const path = sessiondSocketPath();

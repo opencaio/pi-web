@@ -1,7 +1,7 @@
 export interface AppRoute {
-  projectId?: string;
-  workspaceId?: string;
-  sessionId?: string;
+  projectId: string | undefined;
+  workspaceId: string | undefined;
+  sessionId: string | undefined;
 }
 
 export function readRoute(): AppRoute {
@@ -18,9 +18,9 @@ export function writeRoute(route: AppRoute): void {
   url.searchParams.delete("project");
   url.searchParams.delete("workspace");
   url.searchParams.delete("session");
-  if (route.projectId) url.searchParams.set("project", route.projectId);
-  if (route.workspaceId) url.searchParams.set("workspace", route.workspaceId);
-  if (route.sessionId) url.searchParams.set("session", route.sessionId);
+  if (route.projectId !== undefined && route.projectId !== "") url.searchParams.set("project", route.projectId);
+  if (route.workspaceId !== undefined && route.workspaceId !== "") url.searchParams.set("workspace", route.workspaceId);
+  if (route.sessionId !== undefined && route.sessionId !== "") url.searchParams.set("session", route.sessionId);
   const next = `${url.pathname}${url.search}${url.hash}`;
   const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   if (next !== current) window.history.pushState({}, "", url);

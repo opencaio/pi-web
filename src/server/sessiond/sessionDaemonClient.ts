@@ -8,12 +8,12 @@ export class SessionDaemonClient {
 
   async request(method: string, path: string, body?: unknown): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
     const payload = body === undefined ? undefined : JSON.stringify(body);
-    if (this.baseUrl) return this.requestUrl(method, path, payload);
+    if (this.baseUrl !== undefined && this.baseUrl !== "") return this.requestUrl(method, path, payload);
     return this.requestSocket(method, path, payload);
   }
 
   connectWebSocket(path: string): WebSocket {
-    if (this.baseUrl) {
+    if (this.baseUrl !== undefined && this.baseUrl !== "") {
       const url = new URL(path, this.baseUrl);
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
       return new WebSocket(url);
@@ -22,11 +22,12 @@ export class SessionDaemonClient {
   }
 
   private async requestUrl(method: string, path: string, payload?: string) {
-    const response = await fetch(new URL(path, this.baseUrl), {
-      method,
-      headers: payload ? { "content-type": "application/json" } : undefined,
-      body: payload,
-    });
+    const init: RequestInit = { method };
+    if (payload !== undefined && payload !== "") {
+      init.headers = { "content-type": "application/json" };
+      init.body = payload;
+    }
+    const response = await fetch(new URL(path, this.baseUrl), init);
     return {
       statusCode: response.status,
       headers: Object.fromEntries(response.headers.entries()),
@@ -41,13 +42,15 @@ export class SessionDaemonClient {
           socketPath: this.socketPath,
           path,
           method,
-          headers: payload
+          headers: payload !== undefined && payload !== ""
             ? { "content-type": "application/json", "content-length": Buffer.byteLength(payload) }
             : undefined,
         },
         (response) => {
-          const chunks: Buffer[] = [];
-          response.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+          const chunks: Uint8Array[] = [];
+          response.on("data", (chunk: Buffer | string) => {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+          });
           response.on("end", () => {
             resolve({
               statusCode: response.statusCode ?? 500,
@@ -58,7 +61,7 @@ export class SessionDaemonClient {
         },
       );
       request.on("error", reject);
-      if (payload) request.write(payload);
+      if (payload !== undefined && payload !== "") request.write(payload);
       request.end();
     });
   }

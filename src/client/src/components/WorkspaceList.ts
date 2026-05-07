@@ -9,7 +9,7 @@ export class WorkspaceList extends LitElement {
   @property({ attribute: false }) selected?: Workspace;
   @property({ attribute: false }) onSelect?: (workspace: Workspace) => void;
 
-  render() {
+  override render() {
     return html`
       <section>
         <h2>Workspaces</h2>
@@ -22,5 +22,5 @@ export class WorkspaceList extends LitElement {
     `;
   }
 
-  static styles = listStyles;
+  static override styles = listStyles;
 }

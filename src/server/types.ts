@@ -26,6 +26,12 @@ export interface ClientSession {
   firstMessage: string;
 }
 
+export interface ClientMessagePage {
+  messages: unknown[];
+  start: number;
+  total: number;
+}
+
 export interface ClientSessionStatus {
   sessionId: string;
   model?: { provider?: string; id?: string; name?: string; contextWindow?: number; reasoning?: unknown };

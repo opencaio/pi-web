@@ -16,7 +16,7 @@ export class ProjectController {
 
   async addProject() {
     const path = prompt("Project folder path");
-    if (!path) return;
+    if (path === null || path === "") return;
     try {
       const project = await api.addProject(path);
       const projects = this.getState().projects;

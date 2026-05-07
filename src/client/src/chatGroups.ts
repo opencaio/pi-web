@@ -4,7 +4,7 @@ export type ChatGroup =
   | { kind: "message"; message: ChatLine; index: number }
   | { kind: "group"; messages: ChatLine[]; startIndex: number };
 
-export function groupChatMessages(messages: ChatLine[]): ChatGroup[] {
+export function groupChatMessages(messages: ChatLine[], indexOffset = 0): ChatGroup[] {
   const groups: ChatGroup[] = [];
   let eventMessages: ChatLine[] = [];
   let eventStartIndex = 0;
@@ -23,10 +23,11 @@ export function groupChatMessages(messages: ChatLine[]): ChatGroup[] {
     const readableParts = message.parts.filter((part) => isReadablePart(message, part));
     const technicalParts = message.parts.filter((part) => !isReadablePart(message, part));
 
-    if (technicalParts.length) pushEvent({ role: message.role, parts: technicalParts }, index);
+    const absoluteIndex = indexOffset + index;
+    if (technicalParts.length) pushEvent({ role: message.role, parts: technicalParts }, absoluteIndex);
     if (readableParts.length) {
       flushEvents();
-      groups.push({ kind: "message", message: { role: message.role, parts: readableParts }, index });
+      groups.push({ kind: "message", message: { role: message.role, parts: readableParts }, index: absoluteIndex });
     }
   });
   flushEvents();
@@ -38,8 +39,8 @@ export function summarizeChatGroup(messages: ChatLine[]): string {
     acc[message.role] = (acc[message.role] ?? 0) + 1;
     return acc;
   }, {});
-  const details = Object.entries(counts).map(([role, count]) => `${count} ${role}`).join(" · ");
-  return `${messages.length} ${messages.length === 1 ? "event" : "events"}${details ? ` · ${details}` : ""}`;
+  const details = Object.entries(counts).map(([role, count]) => `${String(count)} ${role}`).join(" · ");
+  return `${String(messages.length)} ${messages.length === 1 ? "event" : "events"}${details !== "" ? ` · ${details}` : ""}`;
 }
 
 function isReadablePart(message: ChatLine, part: ChatPart): boolean {

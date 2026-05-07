@@ -9,7 +9,7 @@ export class ProjectList extends LitElement {
   @property({ attribute: false }) selected?: Project;
   @property({ attribute: false }) onSelect?: (project: Project) => void;
 
-  render() {
+  override render() {
     return html`
       <section>
         <h2>Projects</h2>
@@ -22,5 +22,5 @@ export class ProjectList extends LitElement {
     `;
   }
 
-  static styles = listStyles;
+  static override styles = listStyles;
 }

@@ -3,6 +3,11 @@ import { customElement, property } from "lit/decorators.js";
 import type { SessionActivity, SessionInfo, SessionStatus } from "../api";
 import { listStyles } from "./shared";
 
+function sessionLabel(session: SessionInfo): string {
+  if (session.name !== undefined && session.name !== "") return session.name;
+  return session.firstMessage !== "" ? session.firstMessage : session.id.slice(0, 8);
+}
+
 @customElement("session-list")
 export class SessionList extends LitElement {
   @property({ attribute: false }) sessions: SessionInfo[] = [];
@@ -13,13 +18,13 @@ export class SessionList extends LitElement {
   @property({ attribute: false }) onSelect?: (session: SessionInfo) => void;
   @property({ attribute: false }) onStart?: () => void;
 
-  render() {
+  override render() {
     return html`
       <section>
         <h2>Sessions <button ?disabled=${!this.canStart} @click=${() => this.onStart?.()}>+</button></h2>
         ${this.sessions.map((session) => html`
           <button class=${this.selected?.id === session.id ? "selected" : ""} @click=${() => this.onSelect?.(session)}>
-            <span>${session.name || session.firstMessage || session.id.slice(0, 8)}</span><small>${this.renderStatus(session)}${session.messageCount} messages</small>
+            <span>${sessionLabel(session)}</span><small>${this.renderStatus(session)}${String(session.messageCount)} messages</small>
           </button>
         `)}
       </section>
@@ -30,13 +35,13 @@ export class SessionList extends LitElement {
     const status = this.statuses[session.id];
     const activity = this.activities[session.id];
     if (activity?.phase === "active") return `● ${activity.label} · `;
-    if (!status) return "";
+    if (status === undefined) return "";
     if (status.isStreaming) return "● streaming · ";
     if (status.isBashRunning) return "● bash · ";
     if (status.isCompacting) return "● compacting · ";
-    if (status.pendingMessageCount) return `● ${status.pendingMessageCount} pending · `;
+    if (status.pendingMessageCount > 0) return `● ${String(status.pendingMessageCount)} pending · `;
     return "";
   }
 
-  static styles = listStyles;
+  static override styles = listStyles;
 }

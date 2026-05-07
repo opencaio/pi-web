@@ -1,6 +1,6 @@
 import type { ChatLine, ChatPart } from "./components/shared";
 
-export function normalizeMessages(messages: any[]): ChatLine[] {
+export function normalizeMessages(messages: unknown[]): ChatLine[] {
   return messages.flatMap(normalizeMessage).filter((message) => message.parts.length > 0);
 }
 
@@ -20,23 +20,27 @@ export function appendText(messages: ChatLine[], role: ChatLine["role"], text: s
   return [...messages, textMessage(role, text)];
 }
 
-function normalizeMessage(message: any): ChatLine[] {
-  if (message?.role === "bashExecution") return [normalizeBashExecution(message)];
-  const role = normalizeRole(message?.role);
-  const parts = normalizeContent(message?.content, message);
+function normalizeMessage(message: unknown): ChatLine[] {
+  if (getString(message, "role") === "bashExecution") return [normalizeBashExecution(message)];
+  const role = normalizeRole(getString(message, "role"));
+  const parts = normalizeContent(getProperty(message, "content"), message);
   if (role === "tool") return [{ role, parts }];
 
   const visible = parts.filter((part) => part.type !== "empty");
-  return visible.length ? [{ role, parts: visible }] : [];
+  return visible.length > 0 ? [{ role, parts: visible }] : [];
 }
 
-function normalizeBashExecution(message: any): ChatLine {
-  const lines = message.excludeFromContext ? ["excluded from context", "", `$ ${message.command ?? ""}`] : [`$ ${message.command ?? ""}`];
-  if (message.output) lines.push("", String(message.output));
-  if (message.exitCode != null) lines.push("", `exit ${message.exitCode}`);
-  if (message.cancelled) lines.push("", "cancelled");
-  if (message.truncated) lines.push("", "output truncated");
-  if (message.fullOutputPath) lines.push("", `full output: ${message.fullOutputPath}`);
+function normalizeBashExecution(message: unknown): ChatLine {
+  const command = getString(message, "command") ?? "";
+  const lines = getBoolean(message, "excludeFromContext") === true ? ["excluded from context", "", `$ ${command}`] : [`$ ${command}`];
+  const output = getProperty(message, "output");
+  if (output != null) lines.push("", stringifyPrimitive(output));
+  const exitCode = getProperty(message, "exitCode");
+  if (exitCode != null) lines.push("", `exit ${stringifyPrimitive(exitCode)}`);
+  if (getBoolean(message, "cancelled") === true) lines.push("", "cancelled");
+  if (getBoolean(message, "truncated") === true) lines.push("", "output truncated");
+  const fullOutputPath = getString(message, "fullOutputPath");
+  if (fullOutputPath !== undefined && fullOutputPath !== "") lines.push("", `full output: ${fullOutputPath}`);
   return { role: "bash", parts: [{ type: "text", text: lines.join("\n") }] };
 }
 
@@ -47,33 +51,41 @@ function normalizeRole(role: unknown): ChatLine["role"] {
   return "system";
 }
 
-function normalizeContent(content: unknown, message: any): ChatPart[] {
-  if (typeof content === "string") return content ? [{ type: "text", text: content }] : [];
+function normalizeContent(content: unknown, message: unknown): ChatPart[] {
+  if (typeof content === "string") return content !== "" ? [{ type: "text", text: content }] : [];
   if (!Array.isArray(content)) return objectFallback(content);
 
-  return content.flatMap((part: any): ChatPart[] => {
-    if (part?.type === "text") return part.text ? [{ type: "text", text: part.text }] : [];
-    if (part?.type === "thinking") return part.thinking || part.text ? [{ type: "thinking", text: part.thinking ?? part.text }] : [];
-    if (part?.type === "toolCall") return [{ type: "toolCall", toolName: part.name ?? "tool", summary: summarizeArgs(part.arguments) }];
-    if (part?.type === "image") return [{ type: "text", text: "[image]" }];
+  return content.flatMap((part): ChatPart[] => {
+    const type = getString(part, "type");
+    const text = getString(part, "text");
+    if (type === "text") return text !== undefined && text !== "" ? [{ type: "text", text }] : [];
+    if (type === "thinking") {
+      const thinking = getString(part, "thinking") ?? text;
+      return thinking !== undefined && thinking !== "" ? [{ type: "thinking", text: thinking }] : [];
+    }
+    if (type === "toolCall") return [{ type: "toolCall", toolName: getString(part, "name") ?? "tool", summary: summarizeArgs(getProperty(part, "arguments")) }];
+    if (type === "image") return [{ type: "text", text: "[image]" }];
     return objectFallback(part);
-  }).map((part) => part.type === "text" && message?.role === "toolResult"
-    ? { type: "toolResult", toolName: message.toolName ?? "tool", text: part.text, isError: !!message.isError }
+  }).map((part) => part.type === "text" && getString(message, "role") === "toolResult"
+    ? { type: "toolResult", toolName: getString(message, "toolName") ?? "tool", text: part.text, isError: getBoolean(message, "isError") === true }
     : part);
 }
 
 function objectFallback(value: unknown): ChatPart[] {
   if (value == null) return [];
   if (typeof value === "object") return [{ type: "text", text: summarizeArgs(value) }];
-  return [{ type: "text", text: String(value) }];
+  return [{ type: "text", text: stringifyPrimitive(value) }];
 }
 
-function summarizeArgs(args: any): string {
-  if (!args || typeof args !== "object") return args == null ? "" : String(args);
-  if (typeof args.command === "string") return args.command;
-  if (typeof args.path === "string") return args.path;
-  if (typeof args.oldText === "string" && typeof args.newText === "string") return "edit text replacement";
-  if (Array.isArray(args.edits)) return `${args.edits.length} edit${args.edits.length === 1 ? "" : "s"}`;
+function summarizeArgs(args: unknown): string {
+  if (!isRecord(args)) return stringifyPrimitive(args);
+  const command = getString(args, "command");
+  if (command !== undefined) return command;
+  const path = getString(args, "path");
+  if (path !== undefined) return path;
+  if (typeof args["oldText"] === "string" && typeof args["newText"] === "string") return "edit text replacement";
+  const edits = args["edits"];
+  if (Array.isArray(edits)) return `${String(edits.length)} edit${edits.length === 1 ? "" : "s"}`;
   const entries = Object.entries(args).filter(([, value]) => value != null).slice(0, 3);
   return entries.map(([key, value]) => `${key}: ${shortValue(value)}`).join(" · ");
 }
@@ -81,7 +93,32 @@ function summarizeArgs(args: any): string {
 function shortValue(value: unknown): string {
   if (typeof value === "string") return value.length > 80 ? `${value.slice(0, 77)}…` : value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? "" : "s"}`;
-  if (typeof value === "object" && value) return "object";
+  if (Array.isArray(value)) return `${String(value.length)} item${value.length === 1 ? "" : "s"}`;
+  if (typeof value === "object" && value !== null) return "object";
+  return "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function getProperty(value: unknown, key: string): unknown {
+  return isRecord(value) ? value[key] : undefined;
+}
+
+function getString(value: unknown, key: string): string | undefined {
+  const property = getProperty(value, key);
+  return typeof property === "string" ? property : undefined;
+}
+
+function getBoolean(value: unknown, key: string): boolean | undefined {
+  const property = getProperty(value, key);
+  return typeof property === "boolean" ? property : undefined;
+}
+
+function stringifyPrimitive(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
   return "";
 }

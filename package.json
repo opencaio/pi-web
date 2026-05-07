@@ -10,6 +10,8 @@
     "dev:server": "npm run dev:web",
     "dev:client": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\" vite.config.ts",
     "start": "tsx src/server/index.ts",
     "start:sessiond": "tsx src/server/sessiond.ts"
   },
@@ -23,10 +25,14 @@
     "ws": "^8.18.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^24.10.1",
     "@types/ws": "^8.18.1",
+    "eslint": "^10.3.0",
+    "globals": "^17.6.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.2",
     "vite": "^7.2.4"
   }
 }

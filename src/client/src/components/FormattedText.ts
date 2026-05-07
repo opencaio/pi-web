@@ -8,9 +8,9 @@ import { formattedTextStyles } from "./shared";
 export class FormattedText extends LitElement {
   @property() text = "";
 
-  render() {
+  override render() {
     return html`<div class="formatted">${unsafeHTML(toSafeMarkdownHtml(this.text))}</div>`;
   }
 
-  static styles = formattedTextStyles;
+  static override styles = formattedTextStyles;
 }

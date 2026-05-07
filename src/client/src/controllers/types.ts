@@ -5,7 +5,7 @@ export type SetState = (patch: Partial<AppState>) => void;
 export type UpdateUrl = () => void;
 
 export interface RouteTarget {
-  workspaceId?: string;
-  sessionId?: string;
-  updateUrl?: boolean;
+  workspaceId?: string | undefined;
+  sessionId?: string | undefined;
+  updateUrl?: boolean | undefined;
 }

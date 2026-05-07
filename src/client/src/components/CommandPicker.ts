@@ -5,25 +5,25 @@ import { commandPickerStyles } from "./shared";
 
 @customElement("command-picker")
 export class CommandPicker extends LitElement {
-  @property() title = "Select";
+  @property() override title = "Select";
   @property({ attribute: false }) options: CommandOption[] = [];
   @property({ attribute: false }) onPick?: (value: string) => void;
   @property({ attribute: false }) onCancel?: () => void;
   @state() private selectedIndex = 0;
 
-  render() {
+  override render() {
     return html`
       <div class="backdrop" @mousedown=${() => this.onCancel?.()}>
-        <section @mousedown=${(event: MouseEvent) => event.stopPropagation()}>
+        <section @mousedown=${(event: MouseEvent) => { event.stopPropagation(); }}>
           <header>
             <strong>${this.title}</strong>
             <button @click=${() => this.onCancel?.()}>×</button>
           </header>
-          <div class="options" @keydown=${(event: KeyboardEvent) => this.handleKeyDown(event)} tabindex="0">
+          <div class="options" @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }} tabindex="0">
             ${this.options.map((option, index) => html`
               <button class=${index === this.selectedIndex ? "selected" : ""} @click=${() => this.onPick?.(option.value)}>
                 <span>${option.label}</span>
-                ${option.description ? html`<small>${option.description}</small>` : null}
+                ${option.description !== undefined && option.description !== "" ? html`<small>${option.description}</small>` : null}
               </button>
             `)}
           </div>
@@ -32,7 +32,7 @@ export class CommandPicker extends LitElement {
     `;
   }
 
-  firstUpdated() {
+  override firstUpdated() {
     this.renderRoot.querySelector<HTMLElement>(".options")?.focus();
   }
 
@@ -53,5 +53,5 @@ export class CommandPicker extends LitElement {
     }
   }
 
-  static styles = commandPickerStyles;
+  static override styles = commandPickerStyles;
 }

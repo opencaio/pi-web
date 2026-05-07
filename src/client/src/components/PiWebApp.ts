@@ -25,30 +25,30 @@ export class PiWebApp extends LitElement {
 
   private readonly sessions = new SessionController(
     () => this.state,
-    (patch) => this.setState(patch),
-    () => this.updateUrl(),
+    (patch) => { this.setState(patch); },
+    () => { this.updateUrl(); },
   );
   private readonly workspaces = new WorkspaceController(
     () => this.state,
-    (patch) => this.setState(patch),
-    () => this.updateUrl(),
+    (patch) => { this.setState(patch); },
+    () => { this.updateUrl(); },
     this.sessions,
   );
   private readonly projects = new ProjectController(
     () => this.state,
-    (patch) => this.setState(patch),
+    (patch) => { this.setState(patch); },
     this.workspaces,
   );
   private readonly onPopState = () => void this.withChatScrollTransition(() => this.restoreRoute(false));
 
-  connectedCallback(): void {
+  override connectedCallback(): void {
     super.connectedCallback();
     window.addEventListener("popstate", this.onPopState);
     this.sessions.connectStatusUpdates();
     void this.loadProjectsAndRestoreRoute();
   }
 
-  disconnectedCallback(): void {
+  override disconnectedCallback(): void {
     window.removeEventListener("popstate", this.onPopState);
     this.sessions.dispose();
     super.disconnectedCallback();
@@ -65,7 +65,7 @@ export class PiWebApp extends LitElement {
 
   private async restoreRoute(updateUrl: boolean) {
     const route = readRoute();
-    if (!route.projectId) return;
+    if (route.projectId === undefined || route.projectId === "") return;
     const project = this.state.projects.find((p) => p.id === route.projectId);
     if (!project) return;
     await this.workspaces.selectProject(project, { workspaceId: route.workspaceId, sessionId: route.sessionId, updateUrl });
@@ -89,7 +89,7 @@ export class PiWebApp extends LitElement {
     });
   }
 
-  render() {
+  override render() {
     const state = this.state;
     return html`
       <div class="shell">
@@ -106,18 +106,18 @@ export class PiWebApp extends LitElement {
           ${state.error ? html`<div class="error">${state.error}</div>` : null}
           ${state.selectedSession ? html`
             <status-bar .status=${state.status} .activity=${state.activity} .workspace=${state.selectedWorkspace}></status-bar>
-            <chat-view .sessionId=${state.selectedSession.id} .messages=${state.messages}></chat-view>
+            <chat-view .sessionId=${state.selectedSession.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .onLoadMore=${() => this.withChatScrollTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
             <prompt-editor .sessionId=${state.selectedSession.id} .cwd=${state.selectedWorkspace?.path} .onSend=${(text: string) => this.sessions.send(text)} .onStopSession=${() => this.sessions.stopSession()}></prompt-editor>
-            ${state.commandDialog ? html`<command-picker .title=${state.commandDialog.title} .options=${state.commandDialog.options} .onPick=${(value: string) => this.sessions.respondToCommand(state.commandDialog!.requestId, value)} .onCancel=${() => this.sessions.cancelCommand()}></command-picker>` : null}
+            ${state.commandDialog !== undefined ? html`<command-picker .title=${state.commandDialog.title} .options=${state.commandDialog.options} .onPick=${(value: string) => this.sessions.respondToCommand(state.commandDialog?.requestId ?? "", value)} .onCancel=${() => { this.sessions.cancelCommand(); }}></command-picker>` : null}
           ` : html`<div class="empty">Select or start a session.</div>`}
         </main>
       </div>
     `;
   }
 
-  static styles = appStyles;
+  static override styles = appStyles;
 }
 
 function nextFrame(): Promise<void> {
-  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  return new Promise((resolve) => requestAnimationFrame(() => { resolve(); }));
 }

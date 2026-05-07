@@ -18,20 +18,20 @@ export class PromptEditor extends LitElement {
   @state() private selectedIndex = 0;
   private requestVersion = 0;
 
-  protected willUpdate(changed: PropertyValues<this>) {
+  protected override willUpdate(changed: PropertyValues<this>) {
     if (!changed.has("sessionId")) return;
-    const previousSessionId = changed.get("sessionId") as string | undefined;
-    if (previousSessionId) saveDraft(previousSessionId, this.draft);
-    this.draft = this.sessionId ? loadDraft(this.sessionId) : "";
+    const previousSessionId = changed.get("sessionId");
+    if (previousSessionId !== undefined && previousSessionId !== "") saveDraft(previousSessionId, this.draft);
+    this.draft = this.sessionId !== undefined && this.sessionId !== "" ? loadDraft(this.sessionId) : "";
     this.completions = [];
     this.selectedIndex = 0;
   }
 
-  protected updated(changed: PropertyValues) {
+  protected override updated(changed: PropertyValues) {
     if (changed.has("draft") || changed.has("sessionId")) this.resizeTextarea();
   }
 
-  render() {
+  override render() {
     const inputMode = inputModeForDraft(this.draft);
     const shellMode = inputMode.kind === "shell";
     return html`
@@ -40,14 +40,16 @@ export class PromptEditor extends LitElement {
           <textarea
             .value=${this.draft}
             ?disabled=${this.disabled}
-            @input=${(event: Event) => this.updateDraft((event.target as HTMLTextAreaElement).value)}
-            @keydown=${(event: KeyboardEvent) => this.handleKeyDown(event)}
+            @input=${(event: Event) => {
+              if (event.target instanceof HTMLTextAreaElement) this.updateDraft(event.target.value);
+            }}
+            @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }}
             placeholder="Message pi... Use / for commands, @ for files"
           ></textarea>
           ${shellMode ? html`<div class="mode-hint">Shell command${inputMode.excludeFromContext ? " · excluded from context" : ""}</div>` : null}
-          <autocomplete-menu .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => this.pick(item)}></autocomplete-menu>
+          <autocomplete-menu .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
         </div>
-        <button ?disabled=${this.disabled} @click=${this.send}>Send</button>
+        <button ?disabled=${this.disabled} @click=${() => { this.send(); }}>Send</button>
         <button ?disabled=${this.disabled} title="Stop only this Pi session from continuing" @click=${() => this.onStopSession?.()}>Stop session</button>
       </footer>
     `;
@@ -61,12 +63,12 @@ export class PromptEditor extends LitElement {
     const textarea = this.textarea;
     if (!textarea) return;
     textarea.style.height = "auto";
-    textarea.style.height = `${textarea.scrollHeight}px`;
+    textarea.style.height = `${String(textarea.scrollHeight)}px`;
   }
 
   private updateDraft(value: string) {
     this.draft = value;
-    if (this.sessionId) saveDraft(this.sessionId, this.draft);
+    if (this.sessionId !== undefined && this.sessionId !== "") saveDraft(this.sessionId, this.draft);
     void this.refreshCompletions();
   }
 
@@ -74,19 +76,26 @@ export class PromptEditor extends LitElement {
     const trigger = this.currentTrigger();
     const version = ++this.requestVersion;
     this.selectedIndex = 0;
-    if (!trigger) {
+    if (trigger === undefined) {
       this.completions = [];
       return;
     }
-    if (trigger.kind === "command" && this.sessionId) {
-      const commands = await api.commands(this.sessionId).catch(() => [] as SlashCommand[]);
+    if (trigger.kind === "command" && this.sessionId !== undefined && this.sessionId !== "") {
+      const commands = await api.commands(this.sessionId).catch(emptySlashCommands);
       if (version !== this.requestVersion) return;
       this.completions = commands
         .filter((command) => command.name.toLowerCase().includes(trigger.query.toLowerCase()))
         .slice(0, 12)
-        .map((command) => ({ kind: "command", replaceFrom: trigger.from, replaceTo: this.draft.length, insertText: `/${command.name}`, detail: command.source, description: command.description }));
-    } else if (trigger.kind === "file" && this.cwd) {
-      const files = await api.files(this.cwd, trigger.query, trigger.fileKind).catch(() => [] as FileSuggestion[]);
+        .map((command) => ({
+          kind: "command",
+          replaceFrom: trigger.from,
+          replaceTo: this.draft.length,
+          insertText: `/${command.name}`,
+          detail: command.source,
+          ...(command.description === undefined ? {} : { description: command.description }),
+        }));
+    } else if (trigger.kind === "file" && this.cwd !== undefined && this.cwd !== "") {
+      const files = await api.files(this.cwd, trigger.query, trigger.fileKind).catch(emptyFileSuggestions);
       if (version !== this.requestVersion) return;
       this.completions = files
         .slice(0, 12)
@@ -119,7 +128,8 @@ export class PromptEditor extends LitElement {
       }
       if (event.key === "Tab" || event.key === "Enter") {
         event.preventDefault();
-        this.pick(this.completions[this.selectedIndex]);
+        const completion = this.completions[this.selectedIndex];
+        if (completion !== undefined) this.pick(completion);
         return;
       }
       if (event.key === "Escape") {
@@ -136,20 +146,28 @@ export class PromptEditor extends LitElement {
 
   private pick(item: CompletionItem) {
     this.draft = `${this.draft.slice(0, item.replaceFrom)}${item.insertText} ${this.draft.slice(item.replaceTo)}`;
-    if (this.sessionId) saveDraft(this.sessionId, this.draft);
+    if (this.sessionId !== undefined && this.sessionId !== "") saveDraft(this.sessionId, this.draft);
     this.completions = [];
   }
 
   private send() {
     const text = this.draft.trim();
-    if (!text || this.disabled) return;
+    if (text === "" || this.disabled) return;
     this.draft = "";
-    if (this.sessionId) clearDraft(this.sessionId);
+    if (this.sessionId !== undefined && this.sessionId !== "") clearDraft(this.sessionId);
     this.completions = [];
     this.onSend?.(text);
   }
 
-  static styles = promptEditorStyles;
+  static override styles = promptEditorStyles;
+}
+
+function emptySlashCommands(): SlashCommand[] {
+  return [];
+}
+
+function emptyFileSuggestions(): FileSuggestion[] {
+  return [];
 }
 
 const draftStoragePrefix = "pi-web:prompt-draft:";

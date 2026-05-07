@@ -13,7 +13,7 @@ export class ProjectService {
     const resolved = await realpath(input.path);
     const s = await stat(resolved);
     if (!s.isDirectory()) throw new Error("Project path must be a directory");
-    return this.store.add({ name: input.name, path: resolved });
+    return this.store.add(input.name === undefined ? { path: resolved } : { name: input.name, path: resolved });
   }
 
   async requireProject(id: string): Promise<Project> {

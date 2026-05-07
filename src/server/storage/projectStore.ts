@@ -8,6 +8,29 @@ interface ProjectFile {
   projects: Project[];
 }
 
+function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+
+function parseProjectFile(value: unknown): ProjectFile {
+  if (!isRecord(value) || !Array.isArray(value["projects"])) throw new Error("Invalid project file");
+  return { projects: value["projects"].map(parseProject) };
+}
+
+function parseProject(value: unknown): Project {
+  if (!isRecord(value)) throw new Error("Invalid project");
+  const id = value["id"];
+  const name = value["name"];
+  const path = value["path"];
+  const createdAt = value["createdAt"];
+  if (typeof id !== "string" || typeof name !== "string" || typeof path !== "string" || typeof createdAt !== "string") throw new Error("Invalid project");
+  return { id, name, path, createdAt };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 export class ProjectStore {
   constructor(private readonly filePath = join(homedir(), ".pi-web", "projects.json")) {}
 
@@ -21,9 +44,11 @@ export class ProjectStore {
     const existing = data.projects.find((p) => p.path === path);
     if (existing) return existing;
 
+    const trimmedName = input.name?.trim();
+    const leafName = path.split("/").filter((part) => part !== "").at(-1);
     const project: Project = {
       id: randomUUID(),
-      name: input.name?.trim() || path.split("/").filter(Boolean).at(-1) || path,
+      name: trimmedName !== undefined && trimmedName !== "" ? trimmedName : leafName ?? path,
       path,
       createdAt: new Date().toISOString(),
     };
@@ -38,9 +63,10 @@ export class ProjectStore {
 
   private async read(): Promise<ProjectFile> {
     try {
-      return JSON.parse(await readFile(this.filePath, "utf8")) as ProjectFile;
-    } catch (error: any) {
-      if (error?.code === "ENOENT") return { projects: [] };
+      const value: unknown = JSON.parse(await readFile(this.filePath, "utf8"));
+      return parseProjectFile(value);
+    } catch (error: unknown) {
+      if (isNodeErrorWithCode(error, "ENOENT")) return { projects: [] };
       throw error;
     }
   }

@@ -34,10 +34,10 @@ app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/workspaces"
   }
 });
 
-await registerSessionProxyRoutes(app);
+registerSessionProxyRoutes(app);
 
 app.get<{ Querystring: { cwd?: string; q?: string; kind?: "tracked" | "untracked" | "other" } }>("/api/files", async (request, reply) => {
-  if (!request.query.cwd) return reply.code(400).send({ error: "cwd query parameter is required" });
+  if (request.query.cwd === undefined || request.query.cwd === "") return reply.code(400).send({ error: "cwd query parameter is required" });
   try {
     return await listFileSuggestions(request.query.cwd, request.query.q ?? "", request.query.kind);
   } catch (error) {
@@ -51,6 +51,6 @@ if (existsSync(clientDist)) {
   app.setNotFoundHandler((_request, reply) => reply.sendFile("index.html"));
 }
 
-const port = Number(process.env.PI_WEB_PORT ?? process.env.PORT ?? 3000);
-const host = process.env.PI_WEB_HOST ?? "127.0.0.1";
+const port = Number(process.env["PI_WEB_PORT"] ?? process.env["PORT"] ?? 3000);
+const host = process.env["PI_WEB_HOST"] ?? "127.0.0.1";
 await app.listen({ port, host });

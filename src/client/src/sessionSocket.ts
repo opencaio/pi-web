@@ -13,9 +13,9 @@ export type SessionUiEvent =
   | { type: "session.error"; message: string };
 
 export class SessionSocket {
-  private socket?: WebSocket;
-  private sessionId?: string;
-  private onEvent?: (event: SessionUiEvent) => void;
+  private socket: WebSocket | undefined;
+  private sessionId: string | undefined;
+  private onEvent: ((event: SessionUiEvent) => void) | undefined;
   private reconnectTimer?: number;
   private reconnectDelay = 500;
   private shouldReconnect = false;
@@ -42,14 +42,14 @@ export class SessionSocket {
   }
 
   private open(): void {
-    if (!this.sessionId || !this.shouldReconnect) return;
+    if (this.sessionId === undefined || this.sessionId === "" || !this.shouldReconnect) return;
     const socket = sessionEvents(this.sessionId);
     this.socket = socket;
     socket.onopen = () => {
       this.reconnectDelay = 500;
     };
     socket.onmessage = (message) => void this.handleMessage(message.data);
-    socket.onerror = () => socket.close();
+    socket.onerror = () => { socket.close(); };
     socket.onclose = () => {
       if (this.socket === socket) this.socket = undefined;
       this.scheduleReconnect();
@@ -61,7 +61,7 @@ export class SessionSocket {
     window.clearTimeout(this.reconnectTimer);
     const delay = this.reconnectDelay;
     this.reconnectDelay = Math.min(this.reconnectDelay * 1.6, 5000);
-    this.reconnectTimer = window.setTimeout(() => this.open(), delay);
+    this.reconnectTimer = window.setTimeout(() => { this.open(); }, delay);
   }
 
   private async handleMessage(data: MessageEvent["data"]): Promise<void> {
@@ -71,8 +71,8 @@ export class SessionSocket {
 }
 
 export class GlobalSessionSocket {
-  private socket?: WebSocket;
-  private onEvent?: (event: Extract<SessionUiEvent, { type: "status.update" | "activity.update" }>) => void;
+  private socket: WebSocket | undefined;
+  private onEvent: ((event: Extract<SessionUiEvent, { type: "status.update" | "activity.update" }>) => void) | undefined;
   private reconnectTimer?: number;
   private reconnectDelay = 500;
   private shouldReconnect = false;
@@ -100,7 +100,7 @@ export class GlobalSessionSocket {
       this.reconnectDelay = 500;
     };
     socket.onmessage = (message) => void this.handleMessage(message.data);
-    socket.onerror = () => socket.close();
+    socket.onerror = () => { socket.close(); };
     socket.onclose = () => {
       if (this.socket === socket) this.socket = undefined;
       this.scheduleReconnect();
@@ -112,7 +112,7 @@ export class GlobalSessionSocket {
     window.clearTimeout(this.reconnectTimer);
     const delay = this.reconnectDelay;
     this.reconnectDelay = Math.min(this.reconnectDelay * 1.6, 5000);
-    this.reconnectTimer = window.setTimeout(() => this.open(), delay);
+    this.reconnectTimer = window.setTimeout(() => { this.open(); }, delay);
   }
 
   private async handleMessage(data: MessageEvent["data"]): Promise<void> {
@@ -121,12 +121,20 @@ export class GlobalSessionSocket {
   }
 }
 
-function isSessionUiEvent(event: any): event is SessionUiEvent {
-  return ["assistant.delta", "tool.start", "tool.end", "shell.start", "shell.chunk", "shell.end", "status.update", "activity.update", "command.output", "session.error"].includes(event?.type);
+function isSessionUiEvent(event: unknown): event is SessionUiEvent {
+  const type = eventType(event);
+  return ["assistant.delta", "tool.start", "tool.end", "shell.start", "shell.chunk", "shell.end", "status.update", "activity.update", "command.output", "session.error"].includes(type);
 }
 
 function isGlobalSessionEvent(event: unknown): event is Extract<SessionUiEvent, { type: "status.update" | "activity.update" }> {
-  return typeof event === "object" && event !== null && ("type" in event) && ((event as any).type === "status.update" || (event as any).type === "activity.update");
+  const type = eventType(event);
+  return type === "status.update" || type === "activity.update";
+}
+
+function eventType(event: unknown): string {
+  if (typeof event !== "object" || event === null || !("type" in event)) return "";
+  const type = event.type;
+  return typeof type === "string" ? type : "";
 }
 
 async function parseSocketEvent(data: MessageEvent["data"]): Promise<unknown> {
@@ -141,12 +149,12 @@ async function parseSocketEvent(data: MessageEvent["data"]): Promise<unknown> {
 }
 
 function closeSocketQuietly(socket: WebSocket | undefined): void {
-  if (!socket) return;
+  if (socket === undefined) return;
   socket.onmessage = null;
   socket.onerror = null;
   socket.onclose = null;
   if (socket.readyState === WebSocket.CONNECTING) {
-    socket.onopen = () => socket.close();
+    socket.onopen = () => { socket.close(); };
     return;
   }
   socket.close();

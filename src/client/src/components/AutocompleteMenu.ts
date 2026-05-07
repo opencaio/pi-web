@@ -8,7 +8,7 @@ export class AutocompleteMenu extends LitElement {
   @property({ type: Number }) selectedIndex = 0;
   @property({ attribute: false }) onPick?: (item: CompletionItem) => void;
 
-  render() {
+  override render() {
     if (!this.items.length) return null;
     return html`
       <div class="menu">
@@ -16,12 +16,12 @@ export class AutocompleteMenu extends LitElement {
           <button class=${index === this.selectedIndex ? "selected" : ""} @mousedown=${(event: MouseEvent) => { event.preventDefault(); this.onPick?.(item); }}>
             <strong>${item.insertText}</strong>
             <span>${item.detail}</span>
-            ${item.description ? html`<small>${item.description}</small>` : null}
+            ${item.description !== undefined && item.description !== "" ? html`<small>${item.description}</small>` : null}
           </button>
         `)}
       </div>
     `;
   }
 
-  static styles = autocompleteStyles;
+  static override styles = autocompleteStyles;
 }

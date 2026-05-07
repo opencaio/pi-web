@@ -10,12 +10,12 @@ export class StatusBar extends LitElement {
   @property({ attribute: false }) activity?: SessionActivity;
   @property({ attribute: false }) workspace?: Workspace;
 
-  render() {
+  override render() {
     const status = this.status;
-    if (!status) return html`<div class="bar muted">No session status yet</div>`;
+    if (status === undefined) return html`<div class="bar muted">No session status yet</div>`;
     const model = status.model?.id ?? "no model";
-    const provider = status.model?.provider ? `${status.model.provider}/` : "";
-    const state = status.isCompacting ? "compacting" : status.isBashRunning ? "bash" : status.isStreaming ? "running" : status.pendingMessageCount ? "queued" : "idle";
+    const provider = status.model?.provider !== undefined && status.model.provider !== "" ? `${status.model.provider}/` : "";
+    const state = status.isCompacting ? "compacting" : status.isBashRunning ? "bash" : status.isStreaming ? "running" : status.pendingMessageCount > 0 ? "queued" : "idle";
     const active = state !== "idle" || this.activity?.phase === "active";
     const context = status.contextUsage;
     const contextText = context
@@ -34,17 +34,17 @@ export class StatusBar extends LitElement {
         <span>↓${formatTokenCount(tokens.output)}</span>
         <span>${contextText}</span>
         <span>${formatCost(status.cost)}</span>
-        ${status.pendingMessageCount ? html`<span>${status.pendingMessageCount} queued</span>` : null}
+        ${status.pendingMessageCount > 0 ? html`<span>${String(status.pendingMessageCount)} queued</span>` : null}
       </div>
     `;
   }
 
   private activityText(state: string): string {
     const activity = this.activity;
-    if (!activity) return state;
+    if (activity === undefined) return state;
     if (state !== "idle" && activity.phase === "idle") return state;
-    return activity.detail ? `${activity.label}: ${activity.detail}` : activity.label;
+    return activity.detail !== undefined && activity.detail !== "" ? `${activity.label}: ${activity.detail}` : activity.label;
   }
 
-  static styles = statusBarStyles;
+  static override styles = statusBarStyles;
 }
