@@ -91,6 +91,8 @@ export const listStyles = css`
   button { border: 1px solid #30363d; border-radius: 8px; background: #161b22; color: #e6edf3; padding: 7px 9px; cursor: pointer; }
   section > button { display: block; width: 100%; text-align: left; margin: 6px 0; }
   .subheading { margin-top: 14px; }
+  .section-toggle { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; border: 0; background: transparent; color: inherit; padding: 0; font: inherit; text-transform: inherit; }
+  .section-toggle small { display: inline; color: inherit; font-size: inherit; }
   .session-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; margin: 6px 0; }
   .session-row.selected .session-main { border-color: #58a6ff; background: #0d2847; }
   .session-row.archived .session-main { color: #8b949e; }

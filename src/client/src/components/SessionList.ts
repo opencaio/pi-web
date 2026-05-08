@@ -18,6 +18,7 @@ export class SessionList extends LitElement {
   @property({ attribute: false }) onSelect?: (session: SessionInfo) => void;
   @property({ attribute: false }) onStart?: () => void;
   @state() private openMenuSessionId: string | undefined;
+  @state() private archivedExpanded = false;
   private readonly onDocumentClick = (event: MouseEvent) => {
     if (event.composedPath().includes(this)) return;
     this.openMenuSessionId = undefined;
@@ -37,6 +38,7 @@ export class SessionList extends LitElement {
 
   protected override updated(changed: PropertyValues<this>): void {
     if (changed.has("sessions") && this.openMenuSessionId !== undefined && !this.sessions.some((session) => session.id === this.openMenuSessionId)) this.openMenuSessionId = undefined;
+    if (changed.has("sessions") && !this.sessions.some((session) => session.archived === true)) this.archivedExpanded = false;
   }
 
   override render() {
@@ -47,8 +49,8 @@ export class SessionList extends LitElement {
         <h2>Sessions <button ?disabled=${!this.canStart} @click=${() => this.onStart?.()}>+</button></h2>
         ${active.map((session) => this.renderSession(session))}
         ${archived.length > 0 ? html`
-          <h2 class="subheading">Archived</h2>
-          ${archived.map((session) => this.renderSession(session))}
+          <h2 class="subheading"><button class="section-toggle" aria-expanded=${String(this.archivedExpanded)} @click=${() => { this.toggleArchived(); }}><span>${this.archivedExpanded ? "▾" : "▸"} Archived</span><small>${archived.length}</small></button></h2>
+          ${this.archivedExpanded ? archived.map((session) => this.renderSession(session)) : null}
         ` : null}
       </section>
     `;
@@ -76,6 +78,11 @@ export class SessionList extends LitElement {
 
   private toggleMenu(sessionId: string) {
     this.openMenuSessionId = this.openMenuSessionId === sessionId ? undefined : sessionId;
+  }
+
+  private toggleArchived() {
+    this.archivedExpanded = !this.archivedExpanded;
+    if (!this.archivedExpanded) this.openMenuSessionId = undefined;
   }
 
   private renderStatus(session: SessionInfo) {
