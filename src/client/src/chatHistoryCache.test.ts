@@ -12,9 +12,22 @@ describe("mergeChatHistory", () => {
     expect(merged).toEqual(page(0, 5, ["a", "b", "c", "d", "e"]));
   });
 
-  it("uses incoming history when totals changed", () => {
+  it("keeps cached history when new messages were appended", () => {
+    const existing = page(0, 3, ["a", "b", "c"]);
+    const incoming = page(1, 4, ["b", "c", "d"]);
+
+    expect(mergeChatHistory(existing, incoming)).toEqual(page(0, 4, ["a", "b", "c", "d"]));
+  });
+
+  it("uses incoming history when totals shrink", () => {
     const incoming = page(0, 2, ["fresh-a", "fresh-b"]);
 
-    expect(mergeChatHistory(page(0, 1, ["stale"]), incoming)).toEqual(incoming);
+    expect(mergeChatHistory(page(0, 3, ["stale-a", "stale-b", "stale-c"]), incoming)).toEqual(incoming);
+  });
+
+  it("uses incoming history instead of creating a gapped page", () => {
+    const incoming = page(8, 10, ["i", "j"]);
+
+    expect(mergeChatHistory(page(0, 10, ["a", "b"]), incoming)).toEqual(incoming);
   });
 });

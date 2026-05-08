@@ -36,7 +36,8 @@ export function writeChatHistoryCache(sessionId: string, page: RawMessagePage): 
 }
 
 export function mergeChatHistory(existing: RawMessagePage | undefined, incoming: RawMessagePage): RawMessagePage {
-  if (existing?.total !== incoming.total) return incoming;
+  if (existing === undefined) return incoming;
+  if (existing.total > incoming.total) return incoming;
 
   const start = Math.min(existing.start, incoming.start);
   const end = Math.max(existing.start + existing.messages.length, incoming.start + incoming.messages.length);
@@ -44,7 +45,15 @@ export function mergeChatHistory(existing: RawMessagePage | undefined, incoming:
   copyInto(messages, start, existing);
   copyInto(messages, start, incoming);
 
-  return { start, total: incoming.total, messages: messages.filter((message) => message !== undefined) };
+  if (hasSparseEntries(messages)) return incoming;
+  return { start, total: incoming.total, messages };
+}
+
+function hasSparseEntries(messages: unknown[]): boolean {
+  for (let index = 0; index < messages.length; index += 1) {
+    if (!(index in messages) || messages[index] === undefined) return true;
+  }
+  return false;
 }
 
 function copyInto(target: unknown[], targetStart: number, page: RawMessagePage): void {

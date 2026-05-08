@@ -28,6 +28,7 @@ export class ChatView extends LitElement {
   @property({ type: Number }) messageTotal = 0;
   @property({ type: Boolean }) hasMore = false;
   @property({ type: Boolean }) loadingMore = false;
+  @property({ type: Boolean }) isReceivingPartialStream = false;
   @property({ type: Boolean }) isCompacting = false;
   @property({ type: Number }) pendingMessageCount = 0;
   @property({ attribute: false }) status?: SessionStatus;
@@ -85,6 +86,12 @@ export class ChatView extends LitElement {
   }
 
   private renderSessionActivity() {
+    if (this.isReceivingPartialStream) return html`
+      <aside class="session-activity receiving" aria-live="polite">
+        <strong>Receiving answer…</strong>
+        <span>This session was reconnected mid-response. The answer will appear when complete.</span>
+      </aside>
+    `;
     if (!this.isCompacting) return null;
     return html`
       <aside class="session-activity compacting" aria-live="polite">

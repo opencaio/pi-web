@@ -13,6 +13,7 @@ export class SessionController {
   private readonly socket = new SessionSocket();
   private readonly globalSocket = new GlobalSessionSocket();
   private selectionSeq = 0;
+  private catchupStreamSessionId: string | undefined;
 
   constructor(private readonly getState: GetState, private readonly setState: SetState, private readonly updateUrl: UpdateUrl) {}
 
@@ -31,7 +32,8 @@ export class SessionController {
 
   clearActiveSession() {
     this.socket.close();
-    this.setState({ selectedSession: undefined, messages: [], messagePageStart: 0, messagePageTotal: 0, isLoadingEarlierMessages: false, status: undefined, activity: undefined });
+    this.catchupStreamSessionId = undefined;
+    this.setState({ selectedSession: undefined, messages: [], messagePageStart: 0, messagePageTotal: 0, isLoadingEarlierMessages: false, isReceivingPartialStream: false, status: undefined, activity: undefined });
   }
 
   async startSession() {
@@ -49,6 +51,7 @@ export class SessionController {
   async selectSession(session: SessionInfo, options?: { updateUrl?: boolean | undefined }) {
     const seq = ++this.selectionSeq;
     this.socket.close();
+    this.catchupStreamSessionId = undefined;
     const cached = readChatHistoryCache(session.id);
     this.setState({
       selectedSession: session,
@@ -56,6 +59,7 @@ export class SessionController {
       messagePageStart: cached?.start ?? 0,
       messagePageTotal: cached?.total ?? 0,
       isLoadingEarlierMessages: false,
+      isReceivingPartialStream: false,
       status: session.archived === true ? undefined : this.getState().sessionStatuses[session.id],
       activity: session.archived === true ? undefined : this.getState().sessionActivities[session.id],
     });
@@ -64,7 +68,7 @@ export class SessionController {
         const page = await api.messages(session.id, { limit: MESSAGE_PAGE_SIZE });
         if (seq !== this.selectionSeq || this.getState().selectedSession?.id !== session.id) return;
         const history = this.mergeAndCacheHistory(session.id, page);
-        this.setState({ messages: normalizeMessages(history.messages), messagePageStart: history.start, messagePageTotal: history.total, isLoadingEarlierMessages: false, status: undefined, activity: undefined });
+        this.setState({ messages: normalizeMessages(history.messages), messagePageStart: history.start, messagePageTotal: history.total, isLoadingEarlierMessages: false, isReceivingPartialStream: false, status: undefined, activity: undefined });
         if (options?.updateUrl !== false) this.updateUrl();
         return;
       }
@@ -73,7 +77,9 @@ export class SessionController {
       const [page, status] = await Promise.all([api.messages(session.id, { limit: MESSAGE_PAGE_SIZE }), api.status(session.id)]);
       if (seq !== this.selectionSeq || this.getState().selectedSession?.id !== session.id) return;
       const history = this.mergeAndCacheHistory(session.id, page);
-      this.setState({ messages: normalizeMessages(history.messages), messagePageStart: history.start, messagePageTotal: history.total, isLoadingEarlierMessages: false, status, activity: this.getState().sessionActivities[session.id] });
+      const isReceivingPartialStream = status.isStreaming === true;
+      this.catchupStreamSessionId = isReceivingPartialStream ? session.id : undefined;
+      this.setState({ messages: normalizeMessages(history.messages), messagePageStart: history.start, messagePageTotal: history.total, isLoadingEarlierMessages: false, isReceivingPartialStream, status, activity: this.getState().sessionActivities[session.id] });
       this.applyStatus(status);
       for (const event of buffered) this.applyEvent(event);
       this.socket.setHandler((event) => { this.applyEvent(event); });
@@ -238,6 +244,7 @@ export class SessionController {
       sessionStatuses: { ...this.getState().sessionStatuses, [status.sessionId]: status },
       status: this.getState().selectedSession?.id === status.sessionId ? status : this.getState().status,
     });
+    if (this.catchupStreamSessionId === status.sessionId && !status.isStreaming) this.finishStreamCatchup(status.sessionId);
   }
 
   private applySessionName(sessionId: string, name: string | undefined) {
@@ -256,6 +263,15 @@ export class SessionController {
   }
 
   private applyEvent(event: SessionUiEvent) {
+    const selectedSessionId = this.getState().selectedSession?.id;
+    if (this.catchupStreamSessionId !== undefined && this.catchupStreamSessionId === selectedSessionId) {
+      if (event.type === "message.end" || event.type === "agent.end") {
+        this.finishStreamCatchup(this.catchupStreamSessionId);
+        return;
+      }
+      if (isTranscriptEvent(event)) return;
+    }
+
     const transcript = applyTranscriptEvent(this.getState().messages, event);
     if (transcript) {
       this.setState({ messages: transcript });
@@ -267,5 +283,27 @@ export class SessionController {
       this.applySessionName(event.sessionId, event.name);
     }
   }
+
+  private finishStreamCatchup(sessionId: string) {
+    if (this.catchupStreamSessionId !== sessionId) return;
+    this.catchupStreamSessionId = undefined;
+    if (this.getState().selectedSession?.id === sessionId) this.setState({ isReceivingPartialStream: false });
+    void this.refreshMessages(sessionId);
+  }
+
+  private async refreshMessages(sessionId: string) {
+    try {
+      const page = await api.messages(sessionId, { limit: MESSAGE_PAGE_SIZE });
+      if (this.getState().selectedSession?.id !== sessionId) return;
+      const history = this.mergeAndCacheHistory(sessionId, page);
+      this.setState({ messages: normalizeMessages(history.messages), messagePageStart: history.start, messagePageTotal: history.total });
+    } catch (error) {
+      if (this.getState().selectedSession?.id === sessionId) this.setState({ error: String(error) });
+    }
+  }
+}
+
+function isTranscriptEvent(event: SessionUiEvent): boolean {
+  return ["message.append", "assistant.delta", "tool.start", "tool.end", "shell.start", "shell.chunk", "shell.end", "command.output", "session.error"].includes(event.type);
 }
 
