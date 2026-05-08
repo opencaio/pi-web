@@ -17,6 +17,10 @@ export class SessionCommandService {
     private readonly getActive: GetActiveSession,
     private readonly prompt: (sessionId: string, text: string) => Promise<void>,
     private readonly events: SessionEventHub,
+    private readonly lifecycle: {
+      onCompactionStart?: (session: AgentSession) => void;
+      onCompactionEnd?: (session: AgentSession, result: "success" | "error", detail?: string) => void;
+    } = {},
   ) {}
 
   async run(sessionId: string, text: string): Promise<ClientCommandResult> {
@@ -60,6 +64,7 @@ export class SessionCommandService {
   }
 
   private compact(session: AgentSession, instructions: string): ClientCommandResult {
+    this.lifecycle.onCompactionStart?.(session);
     void session.compact(instructions === "" ? undefined : instructions)
       .then((result) => {
         this.events.publish(session.sessionId, {
@@ -67,11 +72,13 @@ export class SessionCommandService {
           level: "success",
           message: formatCompactionResult(result),
         });
+        this.lifecycle.onCompactionEnd?.(session, "success");
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
         this.events.publish(session.sessionId, { type: "command.output", level: "error", message: `Compaction failed: ${message}` });
         this.events.publish(session.sessionId, { type: "session.error", message });
+        this.lifecycle.onCompactionEnd?.(session, "error", message);
       });
     return { type: "done", message: "Compaction started…" };
   }

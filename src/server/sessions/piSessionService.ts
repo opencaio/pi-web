@@ -72,6 +72,16 @@ export class PiSessionService {
       (sessionId) => this.getActive(sessionId),
       (sessionId, text) => this.prompt(sessionId, text),
       events,
+      {
+        onCompactionStart: (session) => {
+          this.publishActivity(session, "compacting", "active");
+          this.publishStatus(session);
+        },
+        onCompactionEnd: (session, result, detail) => {
+          this.publishActivity(session, result === "success" ? "compaction complete" : "compaction failed", result === "success" ? "idle" : "error", detail);
+          this.publishStatus(session);
+        },
+      },
     );
   }
 
