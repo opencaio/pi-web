@@ -11,6 +11,7 @@ import type { GetState, SetState, UpdateUrl } from "./types";
 export class SessionController {
   private readonly socket = new SessionSocket();
   private readonly globalSocket = new GlobalSessionSocket();
+  private selectionSeq = 0;
 
   constructor(private readonly getState: GetState, private readonly setState: SetState, private readonly updateUrl: UpdateUrl) {}
 
@@ -45,26 +46,39 @@ export class SessionController {
   }
 
   async selectSession(session: SessionInfo, options?: { updateUrl?: boolean | undefined }) {
+    const seq = ++this.selectionSeq;
     this.socket.close();
+    const cached = readChatHistoryCache(session.id);
+    this.setState({
+      selectedSession: session,
+      messages: normalizeMessages(cached?.messages ?? []),
+      messagePageStart: cached?.start ?? 0,
+      messagePageTotal: cached?.total ?? 0,
+      isLoadingEarlierMessages: false,
+      status: session.archived === true ? undefined : this.getState().sessionStatuses[session.id],
+      activity: session.archived === true ? undefined : this.getState().sessionActivities[session.id],
+    });
     try {
       if (session.archived === true) {
         const page = await api.messages(session.id, { limit: MESSAGE_PAGE_SIZE });
+        if (seq !== this.selectionSeq || this.getState().selectedSession?.id !== session.id) return;
         const history = this.mergeAndCacheHistory(session.id, page);
-        this.setState({ selectedSession: session, messages: normalizeMessages(history.messages), messagePageStart: history.start, messagePageTotal: history.total, isLoadingEarlierMessages: false, status: undefined, activity: undefined });
+        this.setState({ messages: normalizeMessages(history.messages), messagePageStart: history.start, messagePageTotal: history.total, isLoadingEarlierMessages: false, status: undefined, activity: undefined });
         if (options?.updateUrl !== false) this.updateUrl();
         return;
       }
       const buffered: SessionUiEvent[] = [];
       this.socket.connect(session.id, (event) => buffered.push(event));
       const [page, status] = await Promise.all([api.messages(session.id, { limit: MESSAGE_PAGE_SIZE }), api.status(session.id)]);
+      if (seq !== this.selectionSeq || this.getState().selectedSession?.id !== session.id) return;
       const history = this.mergeAndCacheHistory(session.id, page);
-      this.setState({ selectedSession: session, messages: normalizeMessages(history.messages), messagePageStart: history.start, messagePageTotal: history.total, isLoadingEarlierMessages: false, status });
+      this.setState({ messages: normalizeMessages(history.messages), messagePageStart: history.start, messagePageTotal: history.total, isLoadingEarlierMessages: false, status, activity: this.getState().sessionActivities[session.id] });
       this.applyStatus(status);
       for (const event of buffered) this.applyEvent(event);
       this.socket.setHandler((event) => { this.applyEvent(event); });
       if (options?.updateUrl !== false) this.updateUrl();
     } catch (error) {
-      this.setState({ error: String(error) });
+      if (seq === this.selectionSeq) this.setState({ error: String(error) });
     }
   }
 
