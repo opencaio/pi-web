@@ -1,5 +1,6 @@
-import { LitElement, html, type PropertyValues } from "lit";
+import { LitElement, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
+import { scrollWhenSelected } from "./scrollWhenSelected";
 import { autocompleteStyles, type CompletionItem } from "./shared";
 
 @customElement("autocomplete-menu")
@@ -13,7 +14,7 @@ export class AutocompleteMenu extends LitElement {
     return html`
       <div class="menu">
         ${this.items.map((item, index) => html`
-          <button class=${index === this.selectedIndex ? "selected" : ""} @mousedown=${(event: MouseEvent) => { event.preventDefault(); this.onPick?.(item); }}>
+          <button class=${index === this.selectedIndex ? "selected" : ""} ${scrollWhenSelected(index === this.selectedIndex, item)} @mousedown=${(event: MouseEvent) => { event.preventDefault(); this.onPick?.(item); }}>
             <strong>${item.insertText}</strong>
             <span>${item.detail}</span>
             ${item.description !== undefined && item.description !== "" ? html`<small>${item.description}</small>` : null}
@@ -21,14 +22,6 @@ export class AutocompleteMenu extends LitElement {
         `)}
       </div>
     `;
-  }
-
-  protected override updated(changed: PropertyValues) {
-    if (changed.has("selectedIndex") || changed.has("items")) this.scrollSelectedIntoView();
-  }
-
-  private scrollSelectedIntoView() {
-    this.renderRoot.querySelector<HTMLElement>("button.selected")?.scrollIntoView({ block: "nearest" });
   }
 
   static override styles = autocompleteStyles;

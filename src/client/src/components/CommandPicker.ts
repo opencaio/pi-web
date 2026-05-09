@@ -1,6 +1,7 @@
-import { LitElement, html, type PropertyValues } from "lit";
+import { LitElement, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { CommandOption } from "../api";
+import { scrollWhenSelected } from "./scrollWhenSelected";
 import { commandPickerStyles } from "./shared";
 
 @customElement("command-picker")
@@ -21,7 +22,7 @@ export class CommandPicker extends LitElement {
           </header>
           <div class="options" @keydown=${(event: KeyboardEvent) => { this.handleKeyDown(event); }} tabindex="0">
             ${this.options.map((option, index) => html`
-              <button class=${index === this.selectedIndex ? "selected" : ""} @click=${() => this.onPick?.(option.value)}>
+              <button class=${index === this.selectedIndex ? "selected" : ""} ${scrollWhenSelected(index === this.selectedIndex, option.value)} @click=${() => this.onPick?.(option.value)}>
                 <span>${option.label}</span>
                 ${option.description !== undefined && option.description !== "" ? html`<small>${option.description}</small>` : null}
               </button>
@@ -34,14 +35,6 @@ export class CommandPicker extends LitElement {
 
   override firstUpdated() {
     this.renderRoot.querySelector<HTMLElement>(".options")?.focus();
-  }
-
-  protected override updated(changed: PropertyValues) {
-    if (changed.has("selectedIndex") || changed.has("options")) this.scrollSelectedIntoView();
-  }
-
-  private scrollSelectedIntoView() {
-    this.renderRoot.querySelector<HTMLElement>(".options button.selected")?.scrollIntoView({ block: "nearest" });
   }
 
   private handleKeyDown(event: KeyboardEvent) {

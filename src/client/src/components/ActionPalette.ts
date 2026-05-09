@@ -2,6 +2,7 @@ import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import type { AppAction } from "../actions";
 import { formatShortcut } from "../keyboardShortcuts";
+import { scrollWhenSelected } from "./scrollWhenSelected";
 import { actionPaletteStyles } from "./shared";
 
 @customElement("action-palette")
@@ -33,7 +34,7 @@ export class ActionPalette extends LitElement {
           </header>
           <div class="options">
             ${actions.length === 0 ? html`<div class="empty">No actions found.</div>` : actions.map((action, index) => html`
-              <button class=${index === this.selectedIndex ? "selected" : ""} @click=${() => { this.run(action); }}>
+              <button class=${index === this.selectedIndex ? "selected" : ""} ${scrollWhenSelected(index === this.selectedIndex, action.id)} @click=${() => { this.run(action); }}>
                 <span class="main">
                   <strong>${action.title}</strong>
                   ${action.description !== undefined && action.description !== "" ? html`<small>${action.description}</small>` : null}
@@ -53,15 +54,9 @@ export class ActionPalette extends LitElement {
   }
 
   protected override updated(changed: PropertyValues) {
-    if (changed.has("actions") || changed.has("queryText")) {
-      const maxIndex = Math.max(0, this.filteredActions().length - 1);
-      if (this.selectedIndex > maxIndex) this.selectedIndex = maxIndex;
-    }
-    if (changed.has("selectedIndex") || changed.has("actions") || changed.has("queryText")) this.scrollSelectedIntoView();
-  }
-
-  private scrollSelectedIntoView() {
-    this.renderRoot.querySelector<HTMLElement>(".options button.selected")?.scrollIntoView({ block: "nearest" });
+    if (!changed.has("actions") && !changed.has("queryText")) return;
+    const maxIndex = Math.max(0, this.filteredActions().length - 1);
+    if (this.selectedIndex > maxIndex) this.selectedIndex = maxIndex;
   }
 
   private filteredActions(): AppAction[] {
