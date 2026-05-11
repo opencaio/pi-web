@@ -11,6 +11,7 @@ import {
   type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
 import type { ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionModel, ClientSessionStatus, ClientThinkingLevel, SessionUiEvent } from "../types.js";
+import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { BUILTIN_COMMANDS } from "./builtinCommands.js";
 import { SessionCommandService } from "./sessionCommandService.js";
@@ -138,13 +139,7 @@ export class PiSessionService {
 
   async messages(sessionId: string, page?: { before?: number; limit?: number }): Promise<unknown[] | ClientMessagePage> {
     const session = await this.getOrOpen(sessionId);
-    const messages = historyMessages(session);
-    if (page?.before === undefined && page?.limit === undefined) return messages;
-    const total = messages.length;
-    const before = clampInteger(page.before ?? total, 0, total);
-    const limit = clampInteger(page.limit ?? 100, 1, 500);
-    const start = Math.max(0, before - limit);
-    return { messages: messages.slice(start, before), start, total };
+    return pageMessagesAtSafeBoundary(historyMessages(session), page);
   }
 
   async status(sessionId: string): Promise<ClientSessionStatus> {
@@ -532,11 +527,6 @@ function historyMessages(session: AgentSession): unknown[] {
     else if (entry.type === "branch_summary") messages.push({ role: "system", source: "branch_summary", content: `Branch summary:\n\n${entry.summary}` });
   }
   return messages;
-}
-
-function clampInteger(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return max;
-  return Math.max(min, Math.min(max, Math.floor(value)));
 }
 
 function toClientEvent(event: unknown): SessionUiEvent {
