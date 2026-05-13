@@ -1,7 +1,7 @@
 {
   "name": "@jmfederico/pi-web",
   "version": "1.202605.4",
-  "description": "Browser control plane for persistent Pi Coding Agent sessions.",
+  "description": "Remote web UI and browser control plane for persistent Pi Coding Agent sessions.",
   "license": "MIT",
   "author": "Federico Jaramillo Martinez",
   "type": "module",
@@ -103,7 +103,14 @@
     "pi-coding-agent",
     "coding-agent",
     "agent",
-    "web"
+    "web",
+    "ui",
+    "web-ui",
+    "webui",
+    "remote",
+    "browser",
+    "control-plane",
+    "persistent-sessions"
   ],
   "pi": {
     "extensions": [
