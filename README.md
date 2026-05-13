@@ -166,15 +166,6 @@ pi-web-sessiond
 PI_WEB_PORT=8504 pi-web-server
 ```
 
-To install directly from the GitHub repository instead of npm:
-
-```bash
-npm install -g github:jmfederico/pi-web#main
-pi-web install
-```
-
-For git installs, `dist/` must already be present in the repository because npm does not run the package's `prepack` script for git dependencies.
-
 ## Development quick start
 
 ```bash
