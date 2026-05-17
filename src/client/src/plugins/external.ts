@@ -1,7 +1,7 @@
-import { html } from "lit";
-import type { PiWebPlugin } from "./types";
+import type { PiWebPlugin, PiWebPluginRegistration } from "./types";
 
 interface PluginManifestEntry {
+  id: string;
   module: string;
 }
 
@@ -9,33 +9,22 @@ interface PluginManifest {
   plugins: PluginManifestEntry[];
 }
 
-declare global {
-  interface Window {
-    piWebPluginApi?: {
-      apiVersion: 1;
-      html: typeof html;
-    };
-  }
-}
-
-export async function loadExternalPlugins(manifestUrl = "/pi-web-plugins/manifest.json"): Promise<PiWebPlugin[]> {
-  window.piWebPluginApi = { apiVersion: 1, html };
-
+export async function loadExternalPlugins(manifestUrl = "/pi-web-plugins/manifest.json"): Promise<PiWebPluginRegistration[]> {
   const manifest = await fetchPluginManifest(manifestUrl);
   if (manifest === undefined) return [];
 
-  const plugins: PiWebPlugin[] = [];
+  const registrations: PiWebPluginRegistration[] = [];
   for (const entry of manifest.plugins) {
     try {
       const moduleUrl = new URL(entry.module, new URL(manifestUrl, window.location.href)).toString();
       const module: unknown = await import(/* @vite-ignore */ moduleUrl);
       const plugin = parsePluginModule(module, moduleUrl);
-      if (plugin !== undefined) plugins.push(plugin);
+      registrations.push({ id: entry.id, plugin });
     } catch (error) {
       console.warn(`Failed to load Pi Web plugin ${entry.module}`, error);
     }
   }
-  return plugins;
+  return registrations;
 }
 
 async function fetchPluginManifest(manifestUrl: string): Promise<PluginManifest | undefined> {
@@ -49,13 +38,13 @@ function parseManifest(value: unknown): PluginManifest {
   if (!isRecord(value) || !Array.isArray(value["plugins"])) throw new Error("Invalid plugin manifest");
   return {
     plugins: value["plugins"].map((entry) => {
-      if (!isRecord(entry) || typeof entry["module"] !== "string" || entry["module"] === "") throw new Error("Invalid plugin manifest entry");
-      return { module: entry["module"] };
+      if (!isRecord(entry) || typeof entry["id"] !== "string" || entry["id"] === "" || typeof entry["module"] !== "string" || entry["module"] === "") throw new Error("Invalid plugin manifest entry");
+      return { id: entry["id"], module: entry["module"] };
     }),
   };
 }
 
-function parsePluginModule(module: unknown, moduleUrl: string): PiWebPlugin | undefined {
+function parsePluginModule(module: unknown, moduleUrl: string): PiWebPlugin {
   if (!isRecord(module)) throw new Error(`Plugin module ${moduleUrl} did not export an object`);
   const plugin = module["default"];
   if (!isPiWebPlugin(plugin)) throw new Error(`Plugin module ${moduleUrl} default export is not a PiWebPlugin`);
@@ -63,7 +52,7 @@ function parsePluginModule(module: unknown, moduleUrl: string): PiWebPlugin | un
 }
 
 function isPiWebPlugin(value: unknown): value is PiWebPlugin {
-  return isRecord(value) && typeof value["id"] === "string" && typeof value["name"] === "string" && typeof value["activate"] === "function";
+  return isRecord(value) && value["apiVersion"] === 1 && typeof value["name"] === "string" && typeof value["activate"] === "function";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

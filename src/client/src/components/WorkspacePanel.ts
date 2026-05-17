@@ -34,7 +34,7 @@ export class WorkspacePanel extends LitElement {
   override render() {
     const workspace = this.workspace;
     if (workspace === undefined) return html`<section class="empty">Select a workspace.</section>`;
-    const visiblePanels = this.panels.filter((panel) => panel.visible?.(workspace) ?? true);
+    const visiblePanels = this.panels;
     const selectedPanel = visiblePanels.find((panel) => panel.id === this.tool) ?? visiblePanels[0];
     const context = this.createPanelContext(workspace);
     return html`

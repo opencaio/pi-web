@@ -282,7 +282,7 @@ export class PiWebApp extends LitElement {
 
   private visibleWorkspacePanels(): QualifiedWorkspacePanelContribution[] {
     const workspace = this.state.selectedWorkspace;
-    return this.plugins.getWorkspacePanels().filter((panel) => workspace === undefined || (panel.visible?.(workspace) ?? true));
+    return this.plugins.getWorkspacePanels().filter((panel) => workspace === undefined || (panel.visible?.({ workspace, state: this.state }) ?? true));
   }
 
   private renderMobilePanelTitle(panel: QualifiedWorkspacePanelContribution) {
@@ -322,7 +322,7 @@ export class PiWebApp extends LitElement {
 
   private async loadExternalPlugins(): Promise<void> {
     try {
-      for (const plugin of await loadExternalPlugins()) this.plugins.register(plugin);
+      for (const registration of await loadExternalPlugins()) this.plugins.register(registration);
       this.requestUpdate();
     } catch (error) {
       console.warn("Failed to load external Pi Web plugins", error);
@@ -436,7 +436,7 @@ export class PiWebApp extends LitElement {
 
 function createPluginRegistry(): PluginRegistry {
   const registry = new PluginRegistry();
-  registry.register(corePlugin);
+  registry.register({ id: "core", plugin: corePlugin });
   return registry;
 }
 

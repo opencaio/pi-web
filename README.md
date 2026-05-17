@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Pi Coding Agent](https://img.shields.io/badge/Pi-Coding%20Agent-6f42c1)](https://github.com/earendil-works/pi/tree/main/packages/coding-agent)
 
-Website: <https://jmfederico.github.io/pi-web/>
+Website: <https://pi-web.dev/>
 
 ![Pi Web](docs/assets/pi-web-banner.png)
 
@@ -96,6 +96,30 @@ Pi Web keeps its own state intentionally small:
 - Workspaces: discovered from git worktrees, not stored
 - Sessions and chat history: Pi's default JSONL session storage
 - Active session runtimes and WebSockets: memory in the session daemon
+
+## Plugins
+
+Pi Web production installs can load trusted local UI plugins without rebuilding Pi Web. Plugins are browser-side ES modules that can add action-palette actions, workspace panels, and workspace-label metadata. They do not run in the session daemon and are not sandboxed.
+
+The supported package shape is intentionally singular: `piWeb.plugins` entries with explicit `id` and `module`, plus a browser module that exports `{ apiVersion: 1, name, activate }`. The bundled `pi-web-plugins/info` plugin is the canonical real example.
+
+A useful prompt for AI agents:
+
+```text
+Build a Pi Web plugin for this project. Goal: <describe the UI behavior>.
+Before coding, read https://pi-web.dev/plugins.html and https://pi-web.dev/plugins.md.
+Create it under ~/.pi-web/plugins/<plugin-id> using the documented Pi Web v1 plugin API.
+Validate with /pi-web-plugins/manifest.json and explain reload/debug steps.
+Do not modify Pi Web itself.
+```
+
+Reload the browser tab after adding or editing a plugin. If `PI_WEB_DATA_DIR` is set, use `$PI_WEB_DATA_DIR/plugins` instead of `~/.pi-web/plugins`. Check discovery with:
+
+```bash
+curl http://127.0.0.1:8504/pi-web-plugins/manifest.json
+```
+
+See the full [Plugin API](docs/plugins.md) for contribution types, package metadata, and troubleshooting.
 
 ## Install
 

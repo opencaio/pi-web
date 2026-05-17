@@ -3,10 +3,12 @@ import { createCoreActions } from "./actions";
 import { createCoreWorkspacePanels } from "./panels";
 
 export const corePlugin: PiWebPlugin = {
-  id: "core",
+  apiVersion: 1,
   name: "Pi Web Core",
   activate: () => ({
-    actions: createCoreActions(),
-    workspacePanels: createCoreWorkspacePanels(),
+    contributions: {
+      actions: createCoreActions(),
+      workspacePanels: createCoreWorkspacePanels(),
+    },
   }),
 };

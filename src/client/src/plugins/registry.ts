@@ -1,6 +1,7 @@
+import { html } from "lit";
 import type { AppState } from "../appState";
 import type { Workspace } from "../api";
-import type { PiWebPlugin, PluginAction, PluginRuntimeContext, QualifiedContributionId, QualifiedPluginAction, QualifiedWorkspaceLabelContribution, QualifiedWorkspacePanelContribution, WorkspaceLabelContribution, WorkspaceLabelItem, WorkspacePanelContribution } from "./types";
+import type { PiWebPluginRegistration, PluginAction, PluginRuntimeContext, QualifiedContributionId, QualifiedPluginAction, QualifiedWorkspaceLabelContribution, QualifiedWorkspacePanelContribution, WorkspaceLabelContribution, WorkspaceLabelItem, WorkspacePanelContribution } from "./types";
 
 const idPattern = /^[a-z][a-z0-9.-]*$/u;
 const localIdPattern = /^[a-z][a-z0-9.-]*$/u;
@@ -14,24 +15,28 @@ type RegisteredPluginAction = Omit<PluginAction, "id"> & {
 export class PluginRegistry {
   private readonly actions: RegisteredPluginAction[] = [];
   private readonly workspacePanels: QualifiedWorkspacePanelContribution[] = [];
-  private readonly workspaceLabelContributions: QualifiedWorkspaceLabelContribution[] = [];
+  private readonly workspaceLabels: QualifiedWorkspaceLabelContribution[] = [];
   private readonly pluginIds = new Set<string>();
   private readonly contributionIds = new Set<QualifiedContributionId>();
 
-  register(plugin: PiWebPlugin): void {
-    this.validatePluginId(plugin.id);
-    if (this.pluginIds.has(plugin.id)) throw new Error(`Duplicate plugin id: ${plugin.id}`);
-    this.pluginIds.add(plugin.id);
+  register(registration: PiWebPluginRegistration): void {
+    const { id, plugin } = registration;
+    this.validatePluginId(id);
+    if (this.pluginIds.has(id)) throw new Error(`Duplicate plugin id: ${id}`);
+    this.pluginIds.add(id);
 
-    const contributions = plugin.activate({ apiVersion: 1 });
-    for (const action of contributions.actions ?? []) this.actions.push(this.qualifyAction(plugin.id, action));
-    for (const panel of contributions.workspacePanels ?? []) this.workspacePanels.push(this.qualifyWorkspacePanel(plugin.id, panel));
-    for (const contribution of contributions.workspaceLabelContributions ?? []) this.workspaceLabelContributions.push(this.qualifyWorkspaceLabelContribution(plugin.id, contribution));
+    const apiVersion: unknown = plugin.apiVersion;
+    if (apiVersion !== 1) throw new Error(`Unsupported plugin API version for ${id}: ${String(apiVersion)}`);
+    const result = plugin.activate({ apiVersion: 1, pluginId: id, html });
+    const contributions = result.contributions;
+    for (const action of contributions.actions ?? []) this.actions.push(this.qualifyAction(id, action));
+    for (const panel of contributions.workspacePanels ?? []) this.workspacePanels.push(this.qualifyWorkspacePanel(id, panel));
+    for (const contribution of contributions.workspaceLabels ?? []) this.workspaceLabels.push(this.qualifyWorkspaceLabelContribution(id, contribution));
   }
 
   getActions(context: PluginRuntimeContext): QualifiedPluginAction[] {
     return this.actions.map((action) => {
-      const enabled = typeof action.enabled === "function" ? action.enabled(context) : action.enabled;
+      const enabled = action.enabled?.(context);
       const qualified: QualifiedPluginAction = {
         id: action.id,
         pluginId: action.pluginId,
@@ -53,13 +58,11 @@ export class PluginRegistry {
 
   getWorkspaceLabelItems(state: AppState, workspace: Workspace): WorkspaceLabelItem[] {
     const context = { state, workspace };
-    return [...this.workspaceLabelContributions]
+    return [...this.workspaceLabels]
       .sort((left, right) => (left.order ?? 1000) - (right.order ?? 1000) || left.id.localeCompare(right.id))
       .flatMap((contribution) => {
         if (contribution.visible?.(context) === false) return [];
-        const items = contribution.items(context);
-        if (items === undefined) return [];
-        return Array.isArray(items) ? items : [items];
+        return contribution.items(context);
       });
   }
 

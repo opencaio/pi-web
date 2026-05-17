@@ -2,7 +2,8 @@
   "name": "@pi-web/info-plugin",
   "private": true,
   "piWeb": {
-    "id": "info",
-    "plugin": "pi-web-plugin.js"
+    "plugins": [
+      { "id": "info", "module": "pi-web-plugin.js" }
+    ]
   }
 }

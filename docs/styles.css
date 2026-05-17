@@ -619,7 +619,7 @@ code .comment,
 
 .doc-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 18px;
 }
 
@@ -1002,10 +1002,17 @@ html[data-theme="light"] .comment {
   }
 
   .nav {
-    align-items: flex-start;
+    position: relative;
+    align-items: stretch;
     flex-direction: column;
     gap: 12px;
     padding: 14px 0;
+  }
+
+  .brand {
+    align-self: flex-start;
+    min-height: 38px;
+    max-width: calc(100% - 88px);
   }
 
   .nav-links {
@@ -1015,26 +1022,40 @@ html[data-theme="light"] .comment {
     scrollbar-width: none;
   }
 
+  .nav-links a:not(.github-link) {
+    flex: 0 0 auto;
+  }
+
   .nav-links::-webkit-scrollbar {
     display: none;
   }
 
   .nav-links a,
-  .theme-toggle {
+  .nav-links .theme-toggle {
     min-height: 38px;
     padding: 0 10px;
   }
 
   .nav-links .github-link,
-  .theme-toggle {
+  .nav-links .theme-toggle {
+    position: absolute;
+    top: 14px;
     justify-content: center;
     width: 38px;
     min-width: 38px;
     padding: 0;
   }
 
+  .nav-links .github-link {
+    right: 44px;
+  }
+
+  .nav-links .theme-toggle {
+    right: 0;
+  }
+
   .nav-links .github-link span,
-  .theme-toggle [data-theme-label] {
+  .nav-links .theme-toggle [data-theme-label] {
     display: none;
   }
 

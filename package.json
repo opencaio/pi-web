@@ -17,6 +17,7 @@
     "LICENSE",
     "extensions",
     "pi-web-plugins",
+    "docs/plugins.md",
     "docs/assets"
   ],
   "scripts": {
@@ -91,7 +92,7 @@
   "bugs": {
     "url": "https://github.com/jmfederico/pi-web/issues"
   },
-  "homepage": "https://jmfederico.github.io/pi-web/",
+  "homepage": "https://pi-web.dev/",
   "packageManager": "npm@11.11.0",
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.74.0 <1",

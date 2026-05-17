@@ -18,8 +18,8 @@ describe("PiWebPluginService", () => {
   it("discovers local plugins and serves assets", async () => {
     const pluginDir = join(tempDir, "plugins", "info");
     await writePlugin(pluginDir, {
-      packageJson: { piWeb: { id: "info", plugin: "pi-web-plugin.js" } },
-      files: { "pi-web-plugin.js": "export default { id: 'info' };" },
+      packageJson: { piWeb: { plugins: [{ id: "info", module: "pi-web-plugin.js" }] } },
+      files: { "pi-web-plugin.js": "export default { apiVersion: 1, name: 'Info', activate: () => ({ contributions: {} }) };" },
     });
 
     const service = new PiWebPluginService({ roots: [{ path: join(tempDir, "plugins"), source: "test", scope: "local" }], packageProvider: false });
@@ -38,8 +38,8 @@ describe("PiWebPluginService", () => {
   it("discovers Pi package plugins through an injected package provider", async () => {
     const packageDir = join(tempDir, "pkg");
     await writePlugin(packageDir, {
-      packageJson: { pi: { piWeb: { plugins: [{ id: "review", module: "dist/review.js" }] } } },
-      files: { "dist/review.js": "export default { id: 'review' };" },
+      packageJson: { piWeb: { plugins: [{ id: "review", module: "dist/review.js" }] } },
+      files: { "dist/review.js": "export default { apiVersion: 1, name: 'Review', activate: () => ({ contributions: {} }) };" },
     });
     const packageProvider: PiPackageProvider = {
       listPackages: () => [{ source: "npm:@acme/review", scope: "user", installedPath: packageDir }],
@@ -57,8 +57,8 @@ describe("PiWebPluginService", () => {
   it("discovers local plugins through symlinks for development", async () => {
     const pluginDir = join(tempDir, "dev-plugin");
     await writePlugin(pluginDir, {
-      packageJson: { piWeb: { id: "dev", plugin: "pi-web-plugin.js" } },
-      files: { "pi-web-plugin.js": "export default { id: 'dev' };" },
+      packageJson: { piWeb: { plugins: [{ id: "dev", module: "pi-web-plugin.js" }] } },
+      files: { "pi-web-plugin.js": "export default { apiVersion: 1, name: 'Dev', activate: () => ({ contributions: {} }) };" },
     });
     await mkdir(join(tempDir, "plugins"), { recursive: true });
     await symlink(pluginDir, join(tempDir, "plugins", "dev"), "dir");
@@ -71,27 +71,58 @@ describe("PiWebPluginService", () => {
     await expect(service.readAsset("dev", "pi-web-plugin.js")).resolves.toBeDefined();
   });
 
-  it("keeps duplicate plugin ids addressable", async () => {
+  it("skips duplicate plugin ids", async () => {
     await writePlugin(join(tempDir, "plugins", "one"), {
-      packageJson: { piWeb: { id: "duplicate", plugin: "pi-web-plugin.js" } },
+      packageJson: { piWeb: { plugins: [{ id: "duplicate", module: "pi-web-plugin.js" }] } },
       files: { "pi-web-plugin.js": "export default {};" },
     });
     await writePlugin(join(tempDir, "plugins", "two"), {
-      packageJson: { piWeb: { id: "duplicate", plugin: "pi-web-plugin.js" } },
+      packageJson: { piWeb: { plugins: [{ id: "duplicate", module: "pi-web-plugin.js" }] } },
       files: { "pi-web-plugin.js": "export default {};" },
     });
 
     const service = new PiWebPluginService({ roots: [{ path: join(tempDir, "plugins"), source: "test", scope: "local" }], packageProvider: false });
 
     const manifest = await service.manifest();
-    expect(manifest.plugins.map((plugin) => plugin.id)).toEqual(["duplicate", "duplicate.2"]);
-    await expect(service.readAsset("duplicate.2", "pi-web-plugin.js")).resolves.toBeDefined();
+    expect(manifest.plugins.map((plugin) => plugin.id)).toEqual(["duplicate"]);
   });
 
-  it("rejects unsafe plugin entries and asset traversal", async () => {
+  it("skips legacy metadata shortcuts and unsafe module paths", async () => {
+    const legacyRoot = join(tempDir, "legacy-root");
+    await writePlugin(join(legacyRoot, "legacy"), {
+      packageJson: { piWeb: { id: "legacy", plugin: "pi-web-plugin.js" } },
+      files: { "pi-web-plugin.js": "export default {};" },
+    });
+    const unsafeRoot = join(tempDir, "unsafe-root");
+    await writePlugin(join(unsafeRoot, "unsafe"), {
+      packageJson: { piWeb: { plugins: [{ id: "unsafe", module: "../escape.js" }] } },
+      files: { "pi-web-plugin.js": "export default {};" },
+    });
+
+    await expect(new PiWebPluginService({ roots: [{ path: legacyRoot, source: "test", scope: "local" }], packageProvider: false }).manifest()).resolves.toEqual({ plugins: [] });
+    await expect(new PiWebPluginService({ roots: [{ path: unsafeRoot, source: "test", scope: "local" }], packageProvider: false }).manifest()).resolves.toEqual({ plugins: [] });
+  });
+
+  it("continues discovering valid plugins when another local plugin is invalid", async () => {
+    await writePlugin(join(tempDir, "plugins", "valid"), {
+      packageJson: { piWeb: { plugins: [{ id: "valid", module: "pi-web-plugin.js" }] } },
+      files: { "pi-web-plugin.js": "export default {};" },
+    });
+    await writePlugin(join(tempDir, "plugins", "legacy"), {
+      packageJson: { piWeb: { id: "legacy", plugin: "pi-web-plugin.js" } },
+      files: { "pi-web-plugin.js": "export default {};" },
+    });
+
+    const service = new PiWebPluginService({ roots: [{ path: join(tempDir, "plugins"), source: "test", scope: "local" }], packageProvider: false });
+
+    const manifest = await service.manifest();
+    expect(manifest.plugins.map((plugin) => plugin.id)).toEqual(["valid"]);
+  });
+
+  it("rejects unsafe asset traversal", async () => {
     const pluginDir = join(tempDir, "plugins", "safe");
     await writePlugin(pluginDir, {
-      packageJson: { piWeb: { id: "safe", plugins: ["../escape.js", "pi-web-plugin.js"] } },
+      packageJson: { piWeb: { plugins: [{ id: "safe", module: "pi-web-plugin.js" }] } },
       files: { "pi-web-plugin.js": "export default {};" },
     });
     await writeFile(join(tempDir, "plugins", "escape.js"), "nope");
@@ -100,7 +131,6 @@ describe("PiWebPluginService", () => {
 
     const manifest = await service.manifest();
     expect(manifest.plugins).toHaveLength(1);
-    expect(manifest.plugins[0]?.module).toContain("pi-web-plugin.js");
     await expect(service.readAsset("safe", "../escape.js")).resolves.toBeUndefined();
   });
 });

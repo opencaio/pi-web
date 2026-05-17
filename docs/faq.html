@@ -29,6 +29,7 @@
         <div class="nav-links">
           <a href="remote-first.html">Remote-first</a>
           <a href="install.html">Install</a>
+          <a href="plugins.html">Plugins</a>
           <a href="faq.html" aria-current="page">FAQ</a>
           <a class="github-link" href="https://github.com/jmfederico/pi-web" aria-label="Pi Web on GitHub">
             <svg class="github-icon" viewBox="0 0 16 16" aria-hidden="true">
@@ -71,6 +72,7 @@
             <a href="#cannot-open">I cannot open the web UI</a>
             <a href="#public-internet">Can I expose this publicly?</a>
             <a href="#laptop-or-server">Laptop or server?</a>
+            <a href="#plugins">Can I use local plugins?</a>
             <a href="#sessions-stop">Sessions stop unexpectedly</a>
             <a href="#logs">Where are logs?</a>
           </aside>
@@ -201,6 +203,16 @@
               </p>
             </article>
 
+            <article id="plugins" class="faq-item">
+              <h2>Can I use local plugins with production Pi Web?</h2>
+              <p>
+                Yes. Put trusted browser-side plugins in <code>~/.pi-web/plugins/&lt;plugin-id&gt;/</code>, or symlink a
+                development folder there. Reload the browser tab after edits. If <code>PI_WEB_DATA_DIR</code> is set, use
+                <code>$PI_WEB_DATA_DIR/plugins</code> instead.
+              </p>
+              <p><a href="plugins.html">Read the plugin guide →</a></p>
+            </article>
+
             <article id="sessions-stop" class="faq-item">
               <h2>Sessions stop unexpectedly</h2>
               <p>
@@ -241,6 +253,7 @@
           <a href="./">Home</a>
           <a href="remote-first.html">Remote-first</a>
           <a href="install.html">Install</a>
+          <a href="plugins.html">Plugins</a>
           <a href="https://github.com/jmfederico/pi-web/issues">Issues</a>
         </div>
       </div>

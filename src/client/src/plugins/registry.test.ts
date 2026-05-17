@@ -28,7 +28,7 @@ function createContext(statePatch: Partial<AppState> = {}) {
 describe("PluginRegistry", () => {
   it("namespaces contribution ids with the owning plugin id", () => {
     const registry = new PluginRegistry();
-    registry.register(corePlugin);
+    registry.register({ id: "core", plugin: corePlugin });
 
     expect(registry.getActions(createContext().context).some((action) => action.id === "core:actions.show")).toBe(true);
     expect(registry.getWorkspacePanels().map((panel) => panel.id)).toEqual(["core:workspace.files", "core:workspace.git", "core:workspace.terminal"]);
@@ -40,20 +40,25 @@ describe("PluginRegistry", () => {
     expect(() => {
       registry.register({
         id: "example",
-        name: "Example",
-        activate: () => ({
-          actions: [
-            { id: "duplicate", title: "One", run: () => undefined },
-            { id: "duplicate", title: "Two", run: () => undefined },
-          ],
-        }),
+        plugin: {
+          apiVersion: 1,
+          name: "Example",
+          activate: () => ({
+            contributions: {
+              actions: [
+                { id: "duplicate", title: "One", run: () => undefined },
+                { id: "duplicate", title: "Two", run: () => undefined },
+              ],
+            },
+          }),
+        },
       });
     }).toThrow("Duplicate contribution id: example:duplicate");
   });
 
   it("evaluates core action enablement against runtime state", () => {
     const registry = new PluginRegistry();
-    registry.register(corePlugin);
+    registry.register({ id: "core", plugin: corePlugin });
 
     const inactive = registry.getActions(createContext().context);
     const active = registry.getActions(createContext({ selectedWorkspace: testWorkspace() }).context);
@@ -64,7 +69,7 @@ describe("PluginRegistry", () => {
 
   it("routes refresh current to the active core workspace panel", () => {
     const registry = new PluginRegistry();
-    registry.register(corePlugin);
+    registry.register({ id: "core", plugin: corePlugin });
     const { context, calls } = createContext({
       selectedWorkspace: testWorkspace(),
       workspaceTool: "core:workspace.git",
@@ -81,14 +86,19 @@ describe("PluginRegistry", () => {
     const workspace = testWorkspace();
     registry.register({
       id: "example",
-      name: "Example",
-      activate: () => ({
-        workspaceLabelContributions: [
-          { id: "last", order: 20, items: () => ({ type: "text", text: "last" }) },
-          { id: "hidden", order: 5, visible: () => false, items: () => ({ type: "text", text: "hidden" }) },
-          { id: "first", order: 10, items: () => [{ type: "link", text: "web", href: "http://localhost:5173" }] },
-        ],
-      }),
+      plugin: {
+        apiVersion: 1,
+        name: "Example",
+        activate: () => ({
+          contributions: {
+            workspaceLabels: [
+              { id: "last", order: 20, items: () => [{ type: "text", text: "last" }] },
+              { id: "hidden", order: 5, visible: () => false, items: () => [{ type: "text", text: "hidden" }] },
+              { id: "first", order: 10, items: () => [{ type: "link", text: "web", href: "http://localhost:5173" }] },
+            ],
+          },
+        }),
+      },
     });
 
     expect(registry.getWorkspaceLabelItems(initialAppState(), workspace)).toEqual([

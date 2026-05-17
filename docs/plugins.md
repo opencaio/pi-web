@@ -1,12 +1,12 @@
 # Pi Web plugin API
 
-Pi Web plugins are trusted browser-side ES modules that extend the Pi Web UI. They are intended to be simple enough that an LLM can create or modify them directly.
+Pi Web plugins are trusted browser-side ES modules that extend the Pi Web UI. They are intended for personal, team, and project-local customization, and simple enough for an LLM to create or modify directly.
 
 Plugins can currently:
 
-- add actions to the action palette;
+- add action-palette commands;
 - add workspace tools/panels next to Files, Git, and Terminal;
-- add compact items to workspace labels in the workspace list, panel header, and status bar;
+- add compact workspace-label items in the workspace list, panel header, and status bar;
 - call browser APIs and Pi Web HTTP/WebSocket APIs available to the current browser session;
 - serve their own static assets from the plugin directory.
 
@@ -22,76 +22,97 @@ Plugins run as JavaScript in the browser app. Treat them as trusted code:
 - they can render arbitrary Lit templates/custom elements in plugin contribution areas;
 - they should not be installed from untrusted sources.
 
-This is for personal, team, and project-local customization, not a sandboxed third-party marketplace.
+## What to ask AI to build
 
-## Quick start: local plugin
+Humans should not need to hand-code plugins. Give an AI agent a concrete UI goal and ask it to create or modify a local plugin.
 
-Create a folder with a `package.json` and a browser module:
+Good plugin requests:
 
-```bash
-mkdir -p /srv/dev/my-pi-web-plugin
-cat > /srv/dev/my-pi-web-plugin/package.json <<'JSON'
-{
-  "private": true,
-  "piWeb": {
-    "id": "my-plugin",
-    "plugin": "pi-web-plugin.js"
-  }
-}
-JSON
-cat > /srv/dev/my-pi-web-plugin/pi-web-plugin.js <<'JS'
-const { html } = globalThis.piWebPluginApi;
+- "Show a workspace badge with the dev server URL from `.env`."
+- "Add a workspace panel with links to logs, dashboards, and local services for this repo."
+- "Add an action-palette command that starts a standard code-review prompt."
+- "Show whether the current workspace is a git worktree, main checkout, staging env, or feature branch."
+- "Add a compact status badge based on a project health file or command output saved in the repo."
 
-export default {
-  id: "my-plugin",
-  name: "My Plugin",
-  activate: () => ({
-    actions: [
-      {
-        id: "workspace.show-path",
-        title: "Show Current Workspace Path",
-        group: "My Plugin",
-        enabled: (context) => context.state.selectedWorkspace !== undefined,
-        run: (context) => {
-          window.alert(context.state.selectedWorkspace?.path ?? "No workspace selected");
-        },
-      },
-    ],
-    workspacePanels: [
-      {
-        id: "workspace.info",
-        title: "Info",
-        order: 100,
-        render: ({ workspace }) => html`
-          <section class="toolbar"><strong>Info</strong></section>
-          <section class="viewer">
-            <p class="muted">${workspace.label}</p>
-            <p class="muted">${workspace.path}</p>
-          </section>
-        `,
-      },
-    ],
-    workspaceLabelContributions: [
-      {
-        id: "workspace.kind",
-        order: 10,
-        items: ({ workspace }) => ({
-          type: "text",
-          text: workspace.isGitRepo ? "git" : "folder",
-          title: workspace.path,
-        }),
-      },
-    ],
-  }),
-};
-JS
+Copy-paste prompt for creating a plugin:
+
+```text
+Build a Pi Web plugin for this project.
+Goal: <describe the UI behavior>.
+Before coding, read the Pi Web plugin docs:
+https://pi-web.dev/plugins.html
+Full API reference:
+https://pi-web.dev/plugins.md
+Create it as a local plugin under ~/.pi-web/plugins/<plugin-id>.
+Use the appropriate extension points from the docs.
+Validate by checking /pi-web-plugins/manifest.json and explain how to reload/debug it.
+Do not modify Pi Web itself.
 ```
 
-Symlink it into Pi Web's local plugin directory:
+Copy-paste prompt for modifying a plugin:
+
+```text
+Improve the Pi Web plugin at <path>.
+Before coding, read the Pi Web plugin docs:
+https://pi-web.dev/plugins.html
+Full API reference:
+https://pi-web.dev/plugins.md
+Keep the plugin compatible with the documented v1 API.
+After editing, check the manifest endpoint and browser-console failure cases.
+```
+
+## Canonical example: bundled Info plugin
+
+Pi Web ships a real bundled `info` plugin. Use it as the reference example because it exercises all current contribution types: an action, a workspace label, and a workspace panel.
+
+Files:
+
+```text
+pi-web-plugins/info/package.json
+pi-web-plugins/info/pi-web-plugin.js
+```
+
+Package metadata:
+
+```json
+{
+  "name": "@pi-web/info-plugin",
+  "private": true,
+  "piWeb": {
+    "plugins": [
+      { "id": "info", "module": "pi-web-plugin.js" }
+    ]
+  }
+}
+```
+
+Module shape excerpt:
+
+```js
+export default {
+  apiVersion: 1,
+  name: "Info Plugin",
+  activate: ({ html }) => ({
+    contributions: {
+      actions: [/* action definitions */],
+      workspaceLabels: [/* compact label definitions */],
+      workspacePanels: [/* panel definitions using html */],
+    },
+  }),
+};
+```
+
+When copying the Info plugin, choose a new plugin id so it does not conflict with the bundled `info` plugin.
+
+## Local plugin usage
+
+This works with the production npm/systemd install. Pi Web discovers plugins from `~/.pi-web/plugins/<plugin-package>/` on the web/API side; no Pi Web rebuild or session-daemon restart is required. If `PI_WEB_DATA_DIR` is set, use `$PI_WEB_DATA_DIR/plugins` instead.
+
+Symlink a plugin folder into Pi Web's local plugin directory:
 
 ```bash
 mkdir -p ~/.pi-web/plugins
-ln -s /srv/dev/my-pi-web-plugin ~/.pi-web/plugins/my-plugin
+ln -s /path/to/plugin-folder ~/.pi-web/plugins/plugin-id
 ```
 
 Reload the Pi Web browser tab. Pi Web serves plugin modules with an mtime-based `?v=` cache buster. After editing a plugin, hard reload the browser if you do not see changes.
@@ -103,46 +124,31 @@ Pi Web builds `/pi-web-plugins/manifest.json` from these sources:
 1. Bundled plugins in the Pi Web package:
 
    ```text
-   pi-web-plugins/<plugin-id>/
+   pi-web-plugins/<plugin-package>/
    ```
 
 2. User-local plugins:
 
    ```text
-   ~/.pi-web/plugins/<plugin-id>/
+   ~/.pi-web/plugins/<plugin-package>/
    ```
 
    Entries may be real directories or symlinks. This is the recommended development workflow.
 
 3. Installed Pi packages that expose Pi Web plugin metadata. Pi packages may be user or project scoped.
 
-Plugin directory names and plugin ids should match:
+Plugin package directory names and plugin ids must be valid identifiers:
 
 ```text
 ^[a-z][a-z0-9.-]*$
 ```
 
-### `package.json` metadata
-
-A plugin directory is normally configured with top-level `piWeb` metadata:
+A package can expose one or more Pi Web plugin modules. There is exactly one supported `package.json` metadata shape:
 
 ```json
 {
   "private": true,
   "piWeb": {
-    "id": "my-plugin",
-    "plugin": "pi-web-plugin.js"
-  }
-}
-```
-
-For multiple plugin entries in one package, use `piWeb.plugins`:
-
-```json
-{
-  "private": true,
-  "piWeb": {
-    "id": "my-package",
     "plugins": [
       { "id": "review", "module": "dist/review.js" },
       { "id": "dashboard", "module": "dist/dashboard.js" }
@@ -151,33 +157,14 @@ For multiple plugin entries in one package, use `piWeb.plugins`:
 }
 ```
 
-`piWeb.plugins` may also be an array of module paths:
+Rules:
 
-```json
-{
-  "piWeb": {
-    "id": "my-package",
-    "plugins": ["dist/review.js", "dist/dashboard.js"]
-  }
-}
-```
-
-Pi packages may nest the same metadata under `pi.piWeb`:
-
-```json
-{
-  "pi": {
-    "piWeb": {
-      "id": "my-plugin",
-      "plugin": "pi-web-plugin.js"
-    }
-  }
-}
-```
-
-If a local plugin directory has no `package.json`, Pi Web falls back to `pi-web-plugin.js` in that directory.
-
-Entry module paths must be safe relative paths inside the plugin root. Pi Web ignores empty, absolute, or `..` paths.
+- `piWeb.plugins` must be an array of objects.
+- Each entry must have an explicit `id` and `module`.
+- `id` must match `^[a-z][a-z0-9.-]*$`.
+- `module` must be a safe relative path inside the plugin package root.
+- Duplicate plugin ids are not auto-renamed; later duplicates are skipped.
+- Legacy shortcuts such as `piWeb.plugin`, string entries in `piWeb.plugins`, `piWeb.id` fallback ids, and no-`package.json` fallbacks are not supported.
 
 ### Manifest and assets
 
@@ -206,21 +193,25 @@ A plugin can fetch its own static assets with URLs under:
 
 Pi Web prevents asset path traversal outside the plugin root. JavaScript, JSON, CSS, and HTML get appropriate content types; other files are served as octet-stream.
 
-If two discovered plugins use the same id, the first keeps the id and later ones are renamed to `<id>.2`, `<id>.3`, and so on. Avoid relying on this; prefer unique ids.
-
 ## Plugin module shape
 
-The entry module must default-export a `PiWebPlugin` object:
+The entry module must default-export a plugin object:
 
 ```ts
 interface PiWebPlugin {
-  id: string;
+  apiVersion: 1;
   name: string;
-  activate: (context: PluginActivationContext) => PluginContributions;
+  activate: (context: PluginActivationContext) => PluginActivationResult;
 }
 
 interface PluginActivationContext {
   apiVersion: 1;
+  pluginId: string;
+  html: typeof import("lit").html;
+}
+
+interface PluginActivationResult {
+  contributions: PluginContributions;
 }
 ```
 
@@ -228,25 +219,21 @@ Example:
 
 ```js
 export default {
-  id: "my-plugin",
+  apiVersion: 1,
   name: "My Plugin",
-  activate: ({ apiVersion }) => ({
-    actions: [],
-    workspacePanels: [],
-    workspaceLabelContributions: [],
+  activate: ({ pluginId, html }) => ({
+    contributions: {
+      actions: [],
+      workspacePanels: [],
+      workspaceLabels: [],
+    },
   }),
 };
 ```
 
 `activate()` is called once when the UI loads the plugin. Keep it cheap: define contributions there, but move expensive or async work into actions, custom elements, or explicit user interactions.
 
-Plugin ids and contribution ids must match:
-
-```text
-^[a-z][a-z0-9.-]*$
-```
-
-Contribution ids are local to the plugin. Pi Web qualifies them internally as:
+The plugin id comes from `package.json`, not from the JavaScript module. Contribution ids are local to the plugin and Pi Web qualifies them internally as:
 
 ```text
 <plugin-id>:<local-contribution-id>
@@ -254,28 +241,15 @@ Contribution ids are local to the plugin. Pi Web qualifies them internally as:
 
 For example, plugin `info` with action `workspace.show-path` becomes `info:workspace.show-path`.
 
-## Browser global API
-
-External plugins can access this global before they export their plugin:
-
-```js
-const { apiVersion, html } = globalThis.piWebPluginApi;
-```
-
-- `apiVersion`: currently `1`.
-- `html`: Lit's `html` template tag. Use this instead of importing `lit` from an external plugin unless you bundle your own dependencies.
-
-Pi Web does not currently expose typed helper clients to plugins. Use `fetch()` for Pi Web HTTP APIs and browser `WebSocket` for websocket endpoints if needed.
-
 ## Contributions
 
-`activate()` returns any combination of these contribution arrays:
+`activate()` returns a `contributions` object with any combination of these arrays:
 
 ```ts
 interface PluginContributions {
   actions?: PluginAction[];
   workspacePanels?: WorkspacePanelContribution[];
-  workspaceLabelContributions?: WorkspaceLabelContribution[];
+  workspaceLabels?: WorkspaceLabelContribution[];
 }
 ```
 
@@ -308,20 +282,24 @@ interface PluginAction {
   description?: string;
   shortcut?: string;
   group?: string;
-  enabled?: boolean | ((context: PluginRuntimeContext) => boolean);
+  enabled?: (context: PluginRuntimeContext) => boolean;
   run: (context: PluginRuntimeContext) => void | Promise<void>;
 }
 ```
 
-Runtime context:
+Stable runtime context fields:
 
 ```ts
 interface PluginRuntimeContext {
-  state: AppState;
+  state: {
+    selectedWorkspace?: Workspace;
+    selectedSession?: unknown;
+  };
   openActionPalette: () => void;
   focusPrompt: () => void;
   addProject: () => void | Promise<void>;
-  selectMainView: (view: "navigation" | "chat" | QualifiedContributionId) => void;
+  configureAuth: () => void | Promise<void>;
+  logoutAuth: () => void | Promise<void>;
   selectWorkspaceTool: (tool: QualifiedContributionId) => void;
   refreshFiles: () => void | Promise<void>;
   refreshGit: () => void | Promise<void>;
@@ -334,6 +312,8 @@ interface PluginRuntimeContext {
 Notes:
 
 - `state` is a snapshot of current UI state when actions are built.
+- Only `state.selectedWorkspace` and `state.selectedSession` are documented as stable for plugin authors.
+- Other `state` fields may exist at runtime, but they are Pi Web internals and can change quickly.
 - `enabled` is evaluated when the action palette asks for actions.
 - `selectWorkspaceTool()` expects a qualified panel id such as `my-plugin:workspace.info`.
 - `shortcut` is displayed/handled the same way app actions are; choose shortcuts carefully to avoid conflicts.
@@ -343,24 +323,17 @@ Notes:
 Workspace panels add tools next to built-in workspace tools. They render inside the workspace side panel on desktop and as mobile tabs on smaller screens.
 
 ```js
-const { html } = globalThis.piWebPluginApi;
-
 workspacePanels: [
   {
     id: "workspace.info",
     title: "Info",
     order: 100,
-    visible: (workspace) => workspace.isGitRepo,
-    badge: ({ gitStatus }) => gitStatus?.files.length,
-    render: ({ workspace, gitStatus, onRefreshGit }) => html`
-      <section class="toolbar">
-        <strong>Info</strong>
-        <button @click=${onRefreshGit}>Refresh git</button>
-      </section>
+    visible: ({ workspace }) => workspace.isGitRepo,
+    render: ({ workspace }) => html`
+      <section class="toolbar"><strong>Info</strong></section>
       <section class="viewer">
         <p class="muted">${workspace.label}</p>
         <p class="muted">${workspace.path}</p>
-        <p class="muted">Changed files: ${gitStatus?.files.length ?? 0}</p>
       </section>
     `,
   },
@@ -374,35 +347,13 @@ interface WorkspacePanelContribution {
   id: string;
   title: string;
   order?: number;
-  visible?: (workspace: Workspace) => boolean;
-  badge?: (context: WorkspacePanelContext) => string | number | TemplateResult | undefined;
-  render: (context: WorkspacePanelContext) => TemplateResult;
+  visible?: (context: { workspace: Workspace }) => boolean;
+  badge?: (context: { workspace: Workspace }) => string | number | TemplateResult | undefined;
+  render: (context: { workspace: Workspace }) => TemplateResult;
 }
 ```
 
-Panel context:
-
-```ts
-interface WorkspacePanelContext {
-  workspace: Workspace;
-  fileTree: FileTreeEntry[];
-  expandedDirs: Record<string, FileTreeEntry[]>;
-  selectedFilePath: string | undefined;
-  selectedFileContent: FileContentResponse | undefined;
-  fileTreeStale: boolean;
-  gitStatus: GitStatusResponse | undefined;
-  selectedDiffPath: string | undefined;
-  selectedDiff: GitDiffResponse | undefined;
-  selectedStagedDiff: GitDiffResponse | undefined;
-  gitStale: boolean;
-  activeTerminalCount: number;
-  onRefreshFiles: () => void;
-  onExpandDir: (path: string) => void;
-  onSelectFile: (path: string) => void;
-  onRefreshGit: () => void;
-  onSelectDiff: (path: string) => void;
-}
-```
+Only `workspace` is documented as stable for panel callbacks. Other fields may exist at runtime, but they are Pi Web internals and can change quickly. If a panel needs file, git, or session data, prefer explicit `fetch()` calls and keep them isolated.
 
 Useful workspace shape:
 
@@ -421,28 +372,25 @@ interface Workspace {
 
 Use existing classes such as `toolbar`, `viewer`, `empty`, and `muted` for panel content when possible. Do not assume a panel owns the whole page; keep layout contained.
 
-### Workspace label contributions
+### Workspace labels
 
-Workspace label contributions add compact inline metadata wherever Pi Web displays a workspace label: workspace list, workspace panel header, and status bar.
+Workspace labels add compact inline metadata wherever Pi Web displays a workspace label: workspace list, workspace panel header, and status bar.
 
 Use them for short facts like project environment, local URL, branch status, container name, or health state.
 
 ```js
-workspaceLabelContributions: [
+workspaceLabels: [
   {
     id: "dev-url",
     order: 10,
-    visible: ({ workspace, state }) => {
-      const project = state.projects.find((project) => project.id === workspace.projectId);
-      return project?.path === "/srv/dev/my-app";
-    },
-    items: () => ({
+    visible: ({ workspace }) => workspace.path.includes("my-app"),
+    items: () => [{
       type: "link",
       text: "web:5173",
       href: "http://localhost:5173",
       title: "Open dev server",
       target: "_blank",
-    }),
+    }],
   },
 ]
 ```
@@ -454,16 +402,17 @@ interface WorkspaceLabelContribution {
   id: string;
   order?: number;
   visible?: (context: WorkspaceLabelContext) => boolean;
-  items: (context: WorkspaceLabelContext) => WorkspaceLabelItem | WorkspaceLabelItem[] | undefined;
+  items: (context: WorkspaceLabelContext) => WorkspaceLabelItem[];
 }
 
 interface WorkspaceLabelContext {
   workspace: Workspace;
-  state: AppState;
 }
 ```
 
-Items are sorted by `order` and then id. Return `undefined` to render nothing.
+Only `workspace` is documented as stable for label callbacks. Other fields may exist at runtime, but they are Pi Web internals and can change quickly.
+
+Items are sorted by `order` and then id. Return an empty array to render nothing.
 
 #### Text items
 
@@ -490,8 +439,6 @@ Pi Web renders the anchor and adds safe defaults such as `rel="noopener noreferr
 Use render items when a label contribution needs custom UI, async data, or caching. Render items should stay compact and inline.
 
 ```js
-const { html } = globalThis.piWebPluginApi;
-
 class MyWorkspaceBadge extends HTMLElement {
   set workspace(value) {
     this._workspace = value;
@@ -504,19 +451,21 @@ if (!customElements.get("my-workspace-badge")) {
 }
 
 export default {
-  id: "my-plugin",
+  apiVersion: 1,
   name: "My Plugin",
-  activate: () => ({
-    workspaceLabelContributions: [
-      {
-        id: "badge",
-        order: 10,
-        items: ({ workspace }) => ({
-          type: "render",
-          render: () => html`<my-workspace-badge .workspace=${workspace}></my-workspace-badge>`,
-        }),
-      },
-    ],
+  activate: ({ html }) => ({
+    contributions: {
+      workspaceLabels: [
+        {
+          id: "badge",
+          order: 10,
+          items: ({ workspace }) => [{
+            type: "render",
+            render: () => html`<my-workspace-badge .workspace=${workspace}></my-workspace-badge>`,
+          }],
+        },
+      ],
+    },
   }),
 };
 ```
@@ -538,26 +487,15 @@ async function readWorkspaceFile(workspace, path) {
 }
 ```
 
-Response shape:
-
-```ts
-interface FileContentResponse {
-  path: string;
-  language?: string;
-  encoding: "utf8";
-  size: number;
-  modifiedAt: string;
-  content: string;
-  truncated: boolean;
-  binary: boolean;
-}
-```
+The file response includes fields such as `path`, `content`, `truncated`, and `binary`, but endpoint response shapes are private Pi Web implementation details for now and can change between releases.
 
 Be careful with sensitive files such as `.env`: plugins are trusted browser code, and file contents are exposed to the plugin.
 
 ## Other useful Pi Web APIs
 
-Plugins may call any endpoint available to the browser. Common read endpoints:
+Plugins may call any endpoint available to the browser, but these HTTP endpoints are considered private Pi Web implementation APIs for now. They can change quickly between releases. Prefer plugin runtime context helpers when they cover the interaction, and keep any direct HTTP usage small and isolated.
+
+Common read endpoints:
 
 ```text
 GET /api/projects
@@ -582,7 +520,7 @@ POST /api/sessions/:id/archive
 POST /api/sessions/:id/restore
 ```
 
-Prefer runtime context helpers (`startSession`, `stopActiveWork`, `refreshFiles`, `refreshGit`, etc.) when they cover the interaction. Use direct HTTP calls for plugin-specific data or behavior.
+Prefer runtime context helpers (`startSession`, `stopActiveWork`, `refreshFiles`, `refreshGit`, etc.) when they cover the interaction. Use direct HTTP calls only for plugin-specific data or behavior, and expect to update them as Pi Web evolves.
 
 ## Async data and caching
 
@@ -594,62 +532,25 @@ Pi Web does not provide a plugin cache/invalidation framework. Keep host callbac
 - dedupe fetches and avoid unbounded polling;
 - clean up intervals/event listeners in custom elements' `disconnectedCallback()`.
 
-Example cache pattern:
+## Agent implementation checklist
 
-```js
-const cache = new Map();
-const loading = new Set();
+If you are an AI agent building or editing a Pi Web plugin, follow this checklist:
 
-class DevUrlBadge extends HTMLElement {
-  set workspace(value) {
-    this.workspaceValue = value;
-    void this.load();
-  }
-
-  async load() {
-    const workspace = this.workspaceValue;
-    if (!workspace) return;
-
-    if (cache.has(workspace.id)) {
-      this.renderUrl(cache.get(workspace.id));
-      return;
-    }
-    if (loading.has(workspace.id)) return;
-
-    loading.add(workspace.id);
-    try {
-      const file = await readWorkspaceFile(workspace, "docker/development.local.env");
-      const url = parseEnv(file.content).BASE_URL;
-      cache.set(workspace.id, url);
-      this.renderUrl(url);
-    } finally {
-      loading.delete(workspace.id);
-    }
-  }
-
-  renderUrl(url) {
-    this.textContent = url ?? "";
-  }
-}
-```
-
-## LLM checklist for building a plugin
-
-When asking an LLM to build a Pi Web plugin, give it this checklist:
-
-1. Create a plugin folder with `package.json` and `pi-web-plugin.js`.
-2. Use top-level `piWeb` metadata with `id` and `plugin`, or `piWeb.plugins` for multiple modules.
-3. Default-export `{ id, name, activate }` from the module.
-4. Use ids matching `^[a-z][a-z0-9.-]*$`.
-5. Use `globalThis.piWebPluginApi.html` for Lit templates.
-6. Keep `activate()` synchronous and cheap; return contribution definitions only.
-7. Add actions for command-palette operations.
-8. Add workspace panels for larger workspace UI.
-9. Add workspace label contributions for compact inline metadata.
-10. Use structured text/link label items when possible; use render items/custom elements for async or cached UI.
-11. Use `fetch()` against Pi Web APIs for workspace files, git state, sessions, or plugin-specific behavior not provided by runtime context helpers.
-12. Treat plugins as trusted code and avoid reading or displaying secrets unless intentional.
-13. After local edits, hard reload the browser and check the console for plugin errors.
+1. Create or update a plugin folder with `package.json` and `pi-web-plugin.js`.
+2. Use the single supported package metadata shape: `piWeb.plugins` array with `{ id, module }` entries.
+3. Default-export `{ apiVersion: 1, name, activate }` from the module.
+4. Return `{ contributions: { actions, workspacePanels, workspaceLabels } }` from `activate()`.
+5. Use ids matching `^[a-z][a-z0-9.-]*$`.
+6. Use the activation context's `html` function for Lit templates.
+7. Keep `activate()` synchronous and cheap; return contribution definitions only.
+8. Add actions for command-palette operations.
+9. Add workspace panels for larger workspace UI.
+10. Add workspace labels for compact inline metadata.
+11. Return arrays from workspace label `items()`; return an empty array to render nothing.
+12. Use stable context fields first; only `workspace`, `state.selectedWorkspace`, and `state.selectedSession` are documented as stable.
+13. Use `fetch()` against Pi Web APIs only for plugin-specific behavior not provided by runtime context helpers, and isolate those calls because HTTP endpoints are private for now.
+14. Treat plugins as trusted code and avoid reading or displaying secrets unless intentional.
+15. After local edits, tell the user to hard reload the browser and check the console for plugin errors.
 
 ## Troubleshooting
 
@@ -669,10 +570,11 @@ Common issues:
 
 - invalid plugin id or contribution id;
 - missing default export;
-- missing `name` or `activate` function;
-- missing `package.json` or incorrect `piWeb.plugin` / `piWeb.plugins` metadata;
+- missing `apiVersion: 1`, `name`, or `activate` function;
+- missing `package.json` or incorrect `piWeb.plugins` metadata;
+- legacy shortcuts such as `piWeb.plugin`, string plugin entries, or no-`package.json` fallback;
+- duplicate plugin ids; later duplicates are skipped rather than renamed;
 - entry module path points outside the plugin root or file does not exist;
 - browser cache not refreshed after editing;
 - plugin directory is not under `~/.pi-web/plugins` or symlinked there;
-- duplicate plugin ids cause later plugins to be renamed in the manifest;
 - plugin throws during module import, `activate()`, `visible()`, `enabled()`, `items()`, or `render()`; check the browser console.

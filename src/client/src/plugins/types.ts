@@ -6,21 +6,33 @@ import type { AppState } from "../appState";
 export type PluginId = string;
 export type LocalContributionId = string;
 export type QualifiedContributionId = `${PluginId}:${LocalContributionId}`;
+export type HtmlTemplateTag = (strings: TemplateStringsArray, ...values: unknown[]) => TemplateResult;
+
+export interface PiWebPluginRegistration {
+  id: PluginId;
+  plugin: PiWebPlugin;
+}
 
 export interface PiWebPlugin {
-  id: PluginId;
+  apiVersion: 1;
   name: string;
-  activate: (context: PluginActivationContext) => PluginContributions;
+  activate: (context: PluginActivationContext) => PluginActivationResult;
 }
 
 export interface PluginActivationContext {
   apiVersion: 1;
+  pluginId: PluginId;
+  html: HtmlTemplateTag;
+}
+
+export interface PluginActivationResult {
+  contributions: PluginContributions;
 }
 
 export interface PluginContributions {
   actions?: PluginAction[];
   workspacePanels?: WorkspacePanelContribution[];
-  workspaceLabelContributions?: WorkspaceLabelContribution[];
+  workspaceLabels?: WorkspaceLabelContribution[];
 }
 
 export interface PluginRuntimeContext {
@@ -45,13 +57,18 @@ export interface PluginAction {
   description?: string;
   shortcut?: string;
   group?: string;
-  enabled?: boolean | ((context: PluginRuntimeContext) => boolean);
+  enabled?: (context: PluginRuntimeContext) => boolean;
   run: (context: PluginRuntimeContext) => void | Promise<void>;
 }
 
 export interface QualifiedPluginAction extends AppAction {
   pluginId: PluginId;
   localId: LocalContributionId;
+}
+
+export interface WorkspacePanelVisibilityContext {
+  workspace: Workspace;
+  state: AppState;
 }
 
 export interface WorkspacePanelContext {
@@ -79,7 +96,7 @@ export interface WorkspacePanelContribution {
   id: LocalContributionId;
   title: string;
   order?: number;
-  visible?: (workspace: Workspace) => boolean;
+  visible?: (context: WorkspacePanelVisibilityContext) => boolean;
   badge?: (context: WorkspacePanelContext) => string | number | TemplateResult | undefined;
   render: (context: WorkspacePanelContext) => TemplateResult;
 }
@@ -120,7 +137,7 @@ export interface WorkspaceLabelContribution {
   id: LocalContributionId;
   order?: number;
   visible?: (context: WorkspaceLabelContext) => boolean;
-  items: (context: WorkspaceLabelContext) => WorkspaceLabelItem | WorkspaceLabelItem[] | undefined;
+  items: (context: WorkspaceLabelContext) => WorkspaceLabelItem[];
 }
 
 export interface QualifiedWorkspaceLabelContribution extends WorkspaceLabelContribution {
