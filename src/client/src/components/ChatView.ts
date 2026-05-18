@@ -12,6 +12,19 @@ import "./FormattedText";
 const shortTimestampFormatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 const fullTimestampFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
 
+const partialStreamNoticeBodies = [
+  "You opened this chat while the assistant was already replying. The complete answer will appear shortly.",
+  "We joined mid-sentence. Holding the curtain until the full reply is ready.",
+  "The assistant started before this tab arrived. We’ll show the full answer when it lands.",
+  "Catching the reply in one piece — no spoilers, no half-answers.",
+  "The tokens are still assembling themselves. Full answer incoming.",
+  "We arrived fashionably late to this response. The complete version will appear soon.",
+] as const;
+
+function randomPartialStreamNoticeBody(): string {
+  return partialStreamNoticeBodies[Math.floor(Math.random() * partialStreamNoticeBodies.length)] ?? partialStreamNoticeBodies[0];
+}
+
 function isScrollPosition(value: unknown): value is { index?: number; key?: string; offset: number } {
   return typeof value === "object"
     && value !== null
@@ -49,6 +62,7 @@ export class ChatView extends LitElement {
   private groupedMessagesCache: ChatGroup[] = [];
   private readonly messageMetaCache = new WeakMap<ChatLine, { short: string; full: string }>();
   private readonly messageCopyTextCache = new WeakMap<ChatLine, string>();
+  private partialStreamNoticeBody: string | undefined;
   private lastScrollTop = 0;
   private lastClientHeight = 0;
   private touchStartY: number | undefined;
@@ -79,6 +93,7 @@ export class ChatView extends LitElement {
 
   protected override willUpdate(changed: Map<string, unknown>): void {
     if (changed.has("sessionId")) this.openGroupKeys = this.readOpenGroupKeys();
+    if (changed.has("isReceivingPartialStream") || (changed.has("sessionId") && this.isReceivingPartialStream)) this.syncPartialStreamNoticeBody();
     if (changed.has("messages")) this.pinnedToBottom = this.pinnedToBottom && (this.didChatHeightChange() || this.isNearBottom());
   }
 
@@ -158,8 +173,8 @@ export class ChatView extends LitElement {
   private renderSessionActivity() {
     if (this.isReceivingPartialStream) return html`
       <aside class="session-activity receiving" aria-live="polite">
-        <strong>Receiving answer…</strong>
-        <span>This session was reconnected mid-response. The answer will appear when complete.</span>
+        <strong>Catching up…</strong>
+        <span>${this.currentPartialStreamNoticeBody()}</span>
       </aside>
     `;
     if (!this.isCompacting) return null;
@@ -170,6 +185,15 @@ export class ChatView extends LitElement {
         ${this.pendingMessageCount > 0 ? html`<small>${this.pendingMessageCount} queued ${this.pendingMessageCount === 1 ? "message" : "messages"}</small>` : null}
       </aside>
     `;
+  }
+
+  private syncPartialStreamNoticeBody(): void {
+    this.partialStreamNoticeBody = this.isReceivingPartialStream ? randomPartialStreamNoticeBody() : undefined;
+  }
+
+  private currentPartialStreamNoticeBody(): string {
+    this.partialStreamNoticeBody ??= randomPartialStreamNoticeBody();
+    return this.partialStreamNoticeBody;
   }
 
   private activityState(): string | undefined {
