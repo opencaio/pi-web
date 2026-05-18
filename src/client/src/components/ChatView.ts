@@ -8,6 +8,7 @@ import type { SessionActivity, SessionStatus } from "../api";
 import type { ChatLine, ChatPart } from "./shared";
 import { chatStyles } from "./shared";
 import "./FormattedText";
+import "./ToolExecutionView";
 
 const shortTimestampFormatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 const fullTimestampFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
@@ -262,13 +263,18 @@ export class ChatView extends LitElement {
   }
 
   private renderMessage(message: ChatLine, index: number) {
+    const toolOnly = this.isToolExecutionOnlyMessage(message);
     return html`
       ${this.renderScrollMarker(this.messageScrollMarkerId(index))}
-      <article class="msg ${message.role}" data-index=${index} data-anchor-key=${this.messageAnchorKey(index)}>
-        ${this.renderMessageHeader(message, String(index))}
+      <article class=${toolOnly ? "msg tool-execution-shell" : `msg ${message.role}`} data-index=${index} data-anchor-key=${this.messageAnchorKey(index)}>
+        ${toolOnly ? null : this.renderMessageHeader(message, String(index))}
         ${message.parts.map((part) => this.renderPart(part, message))}
       </article>
     `;
+  }
+
+  private isToolExecutionOnlyMessage(message: ChatLine): boolean {
+    return message.role === "tool" && message.parts.length > 0 && message.parts.every((part) => part.type === "toolExecution");
   }
 
   private renderMessageGroup(messages: ChatLine[], startIndex: number, endIndex: number, autoOpen: boolean) {
@@ -282,12 +288,15 @@ export class ChatView extends LitElement {
           <span>${summarizeChatGroup(messages)}</span>
         </summary>
         <div class="group-body">
-          ${messages.map((message, offset) => html`
-            <section class="group-msg ${message.role}">
-              ${this.renderMessageHeader(message, `${String(startIndex)}:${String(offset)}`)}
-              ${message.parts.map((part) => this.renderPart(part, message))}
-            </section>
-          `)}
+          ${messages.map((message, offset) => {
+            const toolOnly = this.isToolExecutionOnlyMessage(message);
+            return html`
+              <section class=${toolOnly ? "group-msg tool-execution-shell" : `group-msg ${message.role}`}>
+                ${toolOnly ? null : this.renderMessageHeader(message, `${String(startIndex)}:${String(offset)}`)}
+                ${message.parts.map((part) => this.renderPart(part, message))}
+              </section>
+            `;
+          })}
         </div>
       </details>
     `;
@@ -414,6 +423,7 @@ export class ChatView extends LitElement {
       </div>
     `;
     if (part.type === "toolCall") return html`<div class="part tool-line">▶ ${part.toolName}<span class="summary">${part.summary}</span></div>`;
+    if (part.type === "toolExecution") return html`<tool-execution-view class="part" .execution=${part}></tool-execution-view>`;
     if (part.type === "toolResult") return html`
       <details class="part" ?open=${part.isError}>
         <summary>${part.isError ? "✖" : "✓"} ${part.toolName} result</summary>

@@ -102,6 +102,32 @@ describe("applyTranscriptEvent", () => {
     ]);
   });
 
+  it("keeps edit tool preview and result updates on one execution card", () => {
+    let messages: ChatLine[] = [];
+    messages = applyTranscriptEvent(messages, { type: "tool.start", toolName: "edit", toolCallId: "edit-1", summary: "src/app.ts", args: { path: "src/app.ts", edits: [{ oldText: "old", newText: "new" }] } }) ?? messages;
+    messages = applyTranscriptEvent(messages, { type: "tool.update", toolName: "edit", toolCallId: "edit-1", text: "Edit preview computed.", details: { preview: { diff: "-1 old\n+1 new", firstChangedLine: 1 } } }) ?? messages;
+    messages = applyTranscriptEvent(messages, { type: "tool.end", toolName: "edit", toolCallId: "edit-1", text: "ok", isError: false, content: [{ type: "text", text: "ok" }], details: { diff: "-1 old\n+1 new", firstChangedLine: 1 } }) ?? messages;
+    messages = applyTranscriptEvent(messages, { type: "message.end", message: { role: "toolResult", toolCallId: "edit-1", toolName: "edit", content: [{ type: "text", text: "ok" }], details: { diff: "-1 old\n+1 new", firstChangedLine: 1 }, isError: false } }) ?? messages;
+
+    expect(messages).toEqual([
+      {
+        role: "tool",
+        parts: [{
+          type: "toolExecution",
+          toolCallId: "edit-1",
+          toolName: "edit",
+          summary: "src/app.ts",
+          args: { path: "src/app.ts", edits: [{ oldText: "old", newText: "new" }] },
+          status: "success",
+          resultText: "ok",
+          content: [{ type: "text", text: "ok" }],
+          details: { diff: "-1 old\n+1 new", firstChangedLine: 1 },
+          preview: { diff: "-1 old\n+1 new", firstChangedLine: 1 },
+        }],
+      },
+    ]);
+  });
+
   it("does not merge consecutive streamed skill reads", () => {
     let messages: ChatLine[] = [];
     messages = applyTranscriptEvent(messages, { type: "tool.start", toolName: "read", toolCallId: "1", summary: "", args: { path: "/skills/playwright/SKILL.md" } }) ?? messages;

@@ -1,12 +1,32 @@
 import { css } from "lit";
 
+export interface ToolPreview {
+  diff?: string;
+  firstChangedLine?: number;
+  error?: string;
+}
+
+export interface ToolExecutionPart {
+  type: "toolExecution";
+  toolCallId?: string;
+  toolName: string;
+  summary: string;
+  args?: unknown;
+  status: "pending" | "running" | "success" | "error";
+  resultText?: string;
+  content?: unknown;
+  details?: unknown;
+  preview?: ToolPreview;
+}
+
 export type ChatPart =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
   | { type: "skillInvocation"; name: string; location: string; content: string }
   | { type: "skillRead"; name: string; path: string }
-  | { type: "toolCall"; toolName: string; summary: string }
-  | { type: "toolResult"; toolName: string; text: string; isError: boolean }
+  | { type: "toolCall"; toolCallId?: string; toolName: string; summary: string; args?: unknown }
+  | ToolExecutionPart
+  | { type: "toolResult"; toolCallId?: string; toolName: string; text: string; isError: boolean; content?: unknown; details?: unknown }
   | { type: "empty" };
 
 export interface ChatLine {
@@ -164,6 +184,7 @@ export const chatStyles = css`
   .msg { max-width: 100%; min-width: 0; box-sizing: border-box; margin: 0 0 14px; padding: 12px; border: 1px solid var(--pi-border); border-radius: 10px; background: var(--pi-surface); overflow: hidden; }
   .msg.user { border-color: var(--pi-accent-border); background: var(--pi-selection-bg); }
   .msg.tool { border-color: var(--pi-warning-border); background: var(--pi-warning-surface); color: var(--pi-warning); }
+  .msg.tool-execution-shell { padding: 0; border: 0; background: transparent; color: var(--pi-text); }
   .msg.system { color: var(--pi-danger); }
   .msg.bash { border-color: var(--pi-success); background: var(--pi-success-bg); }
   .msg.skill { border-color: var(--pi-purple-border); background: var(--pi-purple-surface); }
@@ -175,6 +196,7 @@ export const chatStyles = css`
   .group-body { padding: 0 12px 12px; }
   .group-msg { max-width: 100%; min-width: 0; box-sizing: border-box; padding: 10px 0; border-top: 1px solid var(--pi-border-muted); color: var(--pi-text); overflow: hidden; }
   .group-msg.tool { color: var(--pi-warning); }
+  .group-msg.tool-execution-shell { color: var(--pi-text); }
   .group-msg.system { color: var(--pi-danger); }
   .group-msg.bash { color: var(--pi-success); }
   .history-boundary { display: grid; gap: 3px; justify-items: center; margin: 0 0 14px; color: var(--pi-muted); font-size: 12px; text-align: center; }

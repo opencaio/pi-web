@@ -207,7 +207,8 @@ export type SessionUiEvent =
   | { type: "assistant.delta"; text: string }
   | { type: "assistant.thinking.delta"; text: string }
   | { type: "tool.start"; toolName: string; toolCallId: string; summary: string; args?: unknown }
-  | { type: "tool.end"; toolName: string; toolCallId: string; text: string; isError: boolean; content?: unknown }
+  | { type: "tool.update"; toolName: string; toolCallId: string; text: string; content?: unknown; details?: unknown }
+  | { type: "tool.end"; toolName: string; toolCallId: string; text: string; isError: boolean; content?: unknown; details?: unknown }
   | { type: "shell.start"; command: string; excludeFromContext?: boolean }
   | { type: "shell.chunk"; chunk: string }
   | { type: "shell.end"; output?: string; exitCode?: number | null; cancelled?: boolean; truncated?: boolean; fullOutputPath?: string; isError?: boolean }

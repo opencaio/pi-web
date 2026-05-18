@@ -1,7 +1,7 @@
-import type { ChatLine, ChatPart } from "./components/shared";
+import type { ChatLine, ChatPart, ToolExecutionPart, ToolPreview } from "./components/shared";
 
 export function normalizeMessages(messages: unknown[]): ChatLine[] {
-  return messages.flatMap(normalizeMessage).filter((message) => message.parts.length > 0);
+  return coalesceToolExecutions(messages.flatMap(normalizeMessage)).filter((message) => message.parts.length > 0);
 }
 
 export function textMessage(role: ChatLine["role"], text: string): ChatLine {
@@ -155,13 +155,29 @@ function normalizeContent(content: unknown, message: unknown): ChatPart[] {
       const args = getProperty(part, "arguments");
       const skillRead = toolName === "read" ? parseSkillReadPath(getString(args, "path")) : undefined;
       if (skillRead !== undefined) return [{ type: "skillRead", ...skillRead }];
-      return [{ type: "toolCall", toolName, summary: summarizeArgs(args) }];
+      const toolCallId = getString(part, "id");
+      return [{ type: "toolCall", ...(toolCallId === undefined ? {} : { toolCallId }), toolName, summary: summarizeArgs(args), ...(args === undefined ? {} : { args }) }];
     }
     if (type === "image") return [{ type: "text", text: "[image]" }];
     return objectFallback(part);
   }).map((part) => part.type === "text" && getString(message, "role") === "toolResult"
-    ? { type: "toolResult", toolName: getString(message, "toolName") ?? "tool", text: part.text, isError: getBoolean(message, "isError") === true }
+    ? toolResultPartFromText(part.text, message)
     : part);
+}
+
+function toolResultPartFromText(text: string, message: unknown): Extract<ChatPart, { type: "toolResult" }> {
+  const toolCallId = getString(message, "toolCallId");
+  const content = getProperty(message, "content");
+  const details = getProperty(message, "details");
+  return {
+    type: "toolResult",
+    ...(toolCallId === undefined ? {} : { toolCallId }),
+    toolName: getString(message, "toolName") ?? "tool",
+    text,
+    ...(content === undefined ? {} : { content }),
+    ...(details === undefined ? {} : { details }),
+    isError: getBoolean(message, "isError") === true,
+  };
 }
 
 function parseSkillReadPath(path: string | undefined): { name: string; path: string } | undefined {
@@ -173,13 +189,95 @@ function parseSkillReadPath(path: string | undefined): { name: string; path: str
   return { name, path };
 }
 
+function coalesceToolExecutions(lines: ChatLine[]): ChatLine[] {
+  const result: ChatLine[] = [];
+  const pendingTools = new Map<string, { lineIndex: number; partIndex: number }>();
+
+  for (const line of lines) {
+    let passthroughParts: ChatPart[] = [];
+    const metadata = { ...(line.source === undefined ? {} : { source: line.source }), ...(line.meta === undefined ? {} : { meta: line.meta }) };
+    const flushPassthrough = () => {
+      if (passthroughParts.length === 0) return;
+      result.push({ role: line.role, parts: passthroughParts, ...metadata });
+      passthroughParts = [];
+    };
+
+    for (const part of line.parts) {
+      if (part.type === "toolCall") {
+        flushPassthrough();
+        const execution = toolExecutionFromCall(part);
+        const lineIndex = result.length;
+        result.push({ role: "tool", parts: [execution], ...metadata });
+        if (execution.toolCallId !== undefined) pendingTools.set(execution.toolCallId, { lineIndex, partIndex: 0 });
+        continue;
+      }
+
+      if (part.type === "toolResult") {
+        const target = part.toolCallId === undefined ? undefined : pendingTools.get(part.toolCallId);
+        if (target !== undefined && mergeToolResultInto(result, target, part)) {
+          pendingTools.delete(part.toolCallId ?? "");
+          continue;
+        }
+      }
+
+      passthroughParts.push(part);
+    }
+
+    flushPassthrough();
+  }
+
+  return result;
+}
+
+function toolExecutionFromCall(part: Extract<ChatPart, { type: "toolCall" }>): ToolExecutionPart {
+  return {
+    type: "toolExecution",
+    ...(part.toolCallId === undefined ? {} : { toolCallId: part.toolCallId }),
+    toolName: part.toolName,
+    summary: part.summary,
+    ...(part.args === undefined ? {} : { args: part.args }),
+    status: "pending",
+  };
+}
+
+function mergeToolResultInto(lines: ChatLine[], target: { lineIndex: number; partIndex: number }, result: Extract<ChatPart, { type: "toolResult" }>): boolean {
+  const line = lines[target.lineIndex];
+  const current = line?.parts[target.partIndex];
+  if (line === undefined || current?.type !== "toolExecution") return false;
+  const preview = previewFromDetails(result.details) ?? current.preview;
+  const next: ToolExecutionPart = {
+    ...current,
+    status: result.isError ? "error" : "success",
+    resultText: result.text,
+    ...(result.content === undefined ? {} : { content: result.content }),
+    ...(result.details === undefined ? {} : { details: result.details }),
+    ...(preview === undefined ? {} : { preview }),
+  };
+  lines[target.lineIndex] = { ...line, parts: [...line.parts.slice(0, target.partIndex), next, ...line.parts.slice(target.partIndex + 1)] };
+  return true;
+}
+
+export function previewFromDetails(details: unknown): ToolPreview | undefined {
+  const preview = getProperty(details, "preview");
+  if (!isRecord(preview)) return undefined;
+  const diff = getString(preview, "diff");
+  const error = getString(preview, "error");
+  const firstChangedLine = getNumber(preview, "firstChangedLine");
+  if (diff === undefined && error === undefined && firstChangedLine === undefined) return undefined;
+  return {
+    ...(diff === undefined ? {} : { diff }),
+    ...(error === undefined ? {} : { error }),
+    ...(firstChangedLine === undefined ? {} : { firstChangedLine }),
+  };
+}
+
 function objectFallback(value: unknown): ChatPart[] {
   if (value == null) return [];
   if (typeof value === "object") return [{ type: "text", text: summarizeArgs(value) }];
   return [{ type: "text", text: stringifyPrimitive(value) }];
 }
 
-function summarizeArgs(args: unknown): string {
+export function summarizeArgs(args: unknown): string {
   if (!isRecord(args)) return stringifyPrimitive(args);
   const command = getString(args, "command");
   if (command !== undefined) return command;
@@ -216,6 +314,11 @@ function getString(value: unknown, key: string): string | undefined {
 function getBoolean(value: unknown, key: string): boolean | undefined {
   const property = getProperty(value, key);
   return typeof property === "boolean" ? property : undefined;
+}
+
+function getNumber(value: unknown, key: string): number | undefined {
+  const property = getProperty(value, key);
+  return typeof property === "number" && Number.isFinite(property) ? property : undefined;
 }
 
 function stringifyPrimitive(value: unknown): string {

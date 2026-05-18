@@ -5,10 +5,13 @@ import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
+  createEditToolDefinition,
+  defineTool,
   getAgentDir,
   ModelRegistry,
   SessionManager,
   type CreateAgentSessionRuntimeFactory,
+  type EditToolDetails,
 } from "@earendil-works/pi-coding-agent";
 import type { ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionModel, ClientSessionStatus, ClientThinkingLevel, SessionUiEvent } from "../types.js";
 import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
@@ -19,6 +22,7 @@ import { SessionArchiveStore, type ArchivedSessionRecord, type ArchiveSessionInp
 import type { ActiveSession } from "./sessionRuntimeStore.js";
 import type { AuthChange } from "./authService.js";
 import { fallbackSessionName, generateShortSessionName } from "./sessionNameGenerator.js";
+import { computeEditPreview, type EditPreviewResult } from "./editPreview.js";
 
 function noop(): void {
   // Intentionally empty default unsubscribe callback.
@@ -118,12 +122,37 @@ function defaultCreateAgentRuntime(createRuntime: CreateAgentSessionRuntimeFacto
 function createDefaultRuntimeFactory(authStorage: AuthStorage, modelRegistry: ModelRegistryInstance): CreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
     const services = await createAgentSessionServices({ cwd, agentDir, authStorage, modelRegistry });
+    const customTools = [createPiWebEditToolDefinition(cwd)];
     const options = sessionStartEvent === undefined
-      ? { services, sessionManager }
-      : { services, sessionManager, sessionStartEvent };
+      ? { services, sessionManager, customTools }
+      : { services, sessionManager, sessionStartEvent, customTools };
     const result = await createAgentSessionFromServices(options);
     return { ...result, services, diagnostics: services.diagnostics };
   };
+}
+
+type PiWebEditToolDetails = EditToolDetails | { preview: EditPreviewResult } | undefined;
+
+function createPiWebEditToolDefinition(cwd: string) {
+  const editTool = createEditToolDefinition(cwd);
+  return defineTool<typeof editTool.parameters, PiWebEditToolDetails>({
+    name: editTool.name,
+    label: editTool.label,
+    description: editTool.description,
+    ...(editTool.promptSnippet === undefined ? {} : { promptSnippet: editTool.promptSnippet }),
+    ...(editTool.promptGuidelines === undefined ? {} : { promptGuidelines: editTool.promptGuidelines }),
+    parameters: editTool.parameters,
+    ...(editTool.renderShell === undefined ? {} : { renderShell: editTool.renderShell }),
+    ...(editTool.prepareArguments === undefined ? {} : { prepareArguments: editTool.prepareArguments }),
+    ...(editTool.executionMode === undefined ? {} : { executionMode: editTool.executionMode }),
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      const preview = await computeEditPreview(params.path, params.edits, cwd);
+      if (signal?.aborted !== true) {
+        onUpdate?.({ content: [{ type: "text", text: "Edit preview computed." }], details: { preview } });
+      }
+      return editTool.execute(toolCallId, params, signal, onUpdate, ctx);
+    },
+  });
 }
 
 export interface PiSessionServiceDependencies {
@@ -777,9 +806,13 @@ function toClientEvent(event: unknown): SessionUiEvent {
     const args = getProperty(event, "args");
     return { type: "tool.start", toolName: getString(event, "toolName") ?? "", toolCallId: getString(event, "toolCallId") ?? "", summary: summarizeToolArgs(args), args };
   }
+  if (eventType === "tool_execution_update") {
+    const partialResult = getProperty(event, "partialResult");
+    return { type: "tool.update", toolName: getString(event, "toolName") ?? "", toolCallId: getString(event, "toolCallId") ?? "", text: stringifyToolResult(partialResult), content: toolResultContent(partialResult), details: toolResultDetails(partialResult) };
+  }
   if (eventType === "tool_execution_end") {
     const result = getProperty(event, "result");
-    return { type: "tool.end", toolName: getString(event, "toolName") ?? "", toolCallId: getString(event, "toolCallId") ?? "", text: stringifyToolResult(result), content: toolResultContent(result), isError: getBoolean(event, "isError") === true };
+    return { type: "tool.end", toolName: getString(event, "toolName") ?? "", toolCallId: getString(event, "toolCallId") ?? "", text: stringifyToolResult(result), content: toolResultContent(result), details: toolResultDetails(result), isError: getBoolean(event, "isError") === true };
   }
   if (eventType === "agent_start") return { type: "agent.start" };
   if (eventType === "agent_end") return { type: "agent.end" };
@@ -820,6 +853,10 @@ function toolResultContent(result: unknown): unknown {
   }
   if (typeof result === "string") return [{ type: "text", text: result }];
   return result;
+}
+
+function toolResultDetails(result: unknown): unknown {
+  return isRecord(result) ? getProperty(result, "details") : undefined;
 }
 
 function stringifyToolResult(result: unknown): string {

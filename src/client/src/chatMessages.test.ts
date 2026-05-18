@@ -22,10 +22,10 @@ describe("chat message normalization", () => {
 
   it("normalizes tool calls and tool results", () => {
     expect(normalizeMessage({ role: "assistant", content: [{ type: "toolCall", name: "bash", arguments: { command: "npm test" } }] })).toEqual([
-      { role: "assistant", parts: [{ type: "toolCall", toolName: "bash", summary: "npm test" }] },
+      { role: "assistant", parts: [{ type: "toolCall", toolName: "bash", summary: "npm test", args: { command: "npm test" } }] },
     ]);
     expect(normalizeMessage({ role: "toolResult", toolName: "bash", isError: true, content: [{ type: "text", text: "failed" }] })).toEqual([
-      { role: "tool", parts: [{ type: "toolResult", toolName: "bash", text: "failed", isError: true }] },
+      { role: "tool", parts: [{ type: "toolResult", toolName: "bash", text: "failed", content: [{ type: "text", text: "failed" }], isError: true }] },
     ]);
   });
 
@@ -39,6 +39,28 @@ describe("chat message normalization", () => {
   it("normalizes skill reads into skill chat lines", () => {
     expect(normalizeMessage({ role: "assistant", content: [{ type: "toolCall", name: "read", arguments: { path: "/home/user/.agents/skills/playwright/SKILL.md" } }] })).toEqual([
       { role: "skill", parts: [{ type: "skillRead", name: "playwright", path: "/home/user/.agents/skills/playwright/SKILL.md" }] },
+    ]);
+  });
+
+  it("pairs tool calls and results into execution cards when normalizing history", () => {
+    expect(normalizeMessages([
+      { role: "assistant", content: [{ type: "toolCall", id: "edit-1", name: "edit", arguments: { path: "src/app.ts", edits: [{ oldText: "old", newText: "new" }] } }] },
+      { role: "toolResult", toolCallId: "edit-1", toolName: "edit", content: [{ type: "text", text: "ok" }], details: { diff: "-1 old\n+1 new" }, isError: false },
+    ])).toEqual([
+      {
+        role: "tool",
+        parts: [{
+          type: "toolExecution",
+          toolCallId: "edit-1",
+          toolName: "edit",
+          summary: "src/app.ts",
+          args: { path: "src/app.ts", edits: [{ oldText: "old", newText: "new" }] },
+          status: "success",
+          resultText: "ok",
+          content: [{ type: "text", text: "ok" }],
+          details: { diff: "-1 old\n+1 new" },
+        }],
+      },
     ]);
   });
 
