@@ -40,6 +40,13 @@ export function createCoreActions(): PluginAction[] {
       run: (context) => context.logoutAuth(),
     },
     {
+      id: "theme.select",
+      title: "Select Theme",
+      description: "Choose the Pi Web color theme",
+      group: "Preferences",
+      run: (context) => { context.openThemePicker(); },
+    },
+    {
       id: "view.chat",
       title: "Go to Chat",
       shortcut: "mod+1",

@@ -1,7 +1,7 @@
 import { html } from "lit";
 import type { AppState } from "../appState";
 import type { Workspace } from "../api";
-import type { PiWebPluginRegistration, PluginAction, PluginRuntimeContext, QualifiedContributionId, QualifiedPluginAction, QualifiedWorkspaceLabelContribution, QualifiedWorkspacePanelContribution, WorkspaceLabelContribution, WorkspaceLabelItem, WorkspacePanelContribution } from "./types";
+import type { PiWebPluginRegistration, PluginAction, PluginRuntimeContext, QualifiedContributionId, QualifiedPluginAction, QualifiedThemeContribution, QualifiedWorkspaceLabelContribution, QualifiedWorkspacePanelContribution, ThemeContribution, WorkspaceLabelContribution, WorkspaceLabelItem, WorkspacePanelContribution } from "./types";
 
 const idPattern = /^[a-z][a-z0-9.-]*$/u;
 const localIdPattern = /^[a-z][a-z0-9.-]*$/u;
@@ -16,6 +16,7 @@ export class PluginRegistry {
   private readonly actions: RegisteredPluginAction[] = [];
   private readonly workspacePanels: QualifiedWorkspacePanelContribution[] = [];
   private readonly workspaceLabels: QualifiedWorkspaceLabelContribution[] = [];
+  private readonly themes: QualifiedThemeContribution[] = [];
   private readonly pluginIds = new Set<string>();
   private readonly contributionIds = new Set<QualifiedContributionId>();
 
@@ -32,6 +33,7 @@ export class PluginRegistry {
     for (const action of contributions.actions ?? []) this.actions.push(this.qualifyAction(id, action));
     for (const panel of contributions.workspacePanels ?? []) this.workspacePanels.push(this.qualifyWorkspacePanel(id, panel));
     for (const contribution of contributions.workspaceLabels ?? []) this.workspaceLabels.push(this.qualifyWorkspaceLabelContribution(id, contribution));
+    for (const theme of contributions.themes ?? []) this.themes.push(this.qualifyTheme(id, theme));
   }
 
   getActions(context: PluginRuntimeContext): QualifiedPluginAction[] {
@@ -54,6 +56,10 @@ export class PluginRegistry {
 
   getWorkspacePanels(): QualifiedWorkspacePanelContribution[] {
     return [...this.workspacePanels].sort((left, right) => (left.order ?? 1000) - (right.order ?? 1000) || left.title.localeCompare(right.title));
+  }
+
+  getThemes(): QualifiedThemeContribution[] {
+    return [...this.themes].sort((left, right) => (left.order ?? 1000) - (right.order ?? 1000) || left.name.localeCompare(right.name));
   }
 
   getWorkspaceLabelItems(state: AppState, workspace: Workspace): WorkspaceLabelItem[] {
@@ -79,6 +85,11 @@ export class PluginRegistry {
   private qualifyWorkspaceLabelContribution(pluginId: string, contribution: WorkspaceLabelContribution): QualifiedWorkspaceLabelContribution {
     const id = this.qualify(pluginId, contribution.id);
     return { ...contribution, id, pluginId, localId: contribution.id };
+  }
+
+  private qualifyTheme(pluginId: string, theme: ThemeContribution): QualifiedThemeContribution {
+    const id = this.qualify(pluginId, theme.id);
+    return { ...theme, id, pluginId, localId: theme.id };
   }
 
   private qualify(pluginId: string, localId: string): QualifiedContributionId {

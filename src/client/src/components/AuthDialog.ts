@@ -146,19 +146,19 @@ export class AuthDialog extends LitElement {
 
   static override styles = [commandPickerStyles, css`
     .form { display: grid; gap: 12px; padding: 14px; overflow: auto; }
-    .form p { margin: 0; color: #c9d1d9; overflow-wrap: anywhere; }
-    .form a { color: #58a6ff; overflow-wrap: anywhere; }
-    .form code { border: 1px solid #30363d; border-radius: 4px; background: #161b22; padding: 1px 4px; }
-    label { color: #8b949e; }
+    .form p { margin: 0; color: var(--pi-text-secondary); overflow-wrap: anywhere; }
+    .form a { color: var(--pi-accent); overflow-wrap: anywhere; }
+    .form code { border: 1px solid var(--pi-border); border-radius: 4px; background: var(--pi-surface); padding: 1px 4px; }
+    label { color: var(--pi-muted); }
     .actions { display: flex; justify-content: flex-end; gap: 8px; }
-    .actions button, .inline-options button { border: 1px solid #30363d; border-radius: 8px; background: #161b22; color: #e6edf3; padding: 7px 9px; }
-    .actions button.primary { border-color: #238636; background: #0f2a16; color: #3fb950; }
+    .actions button, .inline-options button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; }
+    .actions button.primary { border-color: var(--pi-success-border); background: var(--pi-success-surface); color: var(--pi-success); }
     .actions button:disabled { opacity: .6; cursor: wait; }
-    .warning { color: #d29922; }
-    .error-text { color: #ff7b72; }
-    .progress { margin: 0; padding-left: 18px; color: #8b949e; }
+    .warning { color: var(--pi-warning); }
+    .error-text { color: var(--pi-danger); }
+    .progress { margin: 0; padding-left: 18px; color: var(--pi-muted); }
     .inline-options { display: grid; gap: 8px; }
-    em { color: #3fb950; font-style: normal; font-size: 12px; }
+    em { color: var(--pi-success); font-style: normal; font-size: 12px; }
   `];
 }
 

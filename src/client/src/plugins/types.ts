@@ -33,6 +33,7 @@ export interface PluginContributions {
   actions?: PluginAction[];
   workspacePanels?: WorkspacePanelContribution[];
   workspaceLabels?: WorkspaceLabelContribution[];
+  themes?: ThemeContribution[];
 }
 
 export interface PluginRuntimeContext {
@@ -42,6 +43,7 @@ export interface PluginRuntimeContext {
   addProject: () => void | Promise<void>;
   configureAuth: () => void | Promise<void>;
   logoutAuth: () => void | Promise<void>;
+  openThemePicker: () => void;
   selectMainView: (view: AppState["mainView"]) => void;
   selectWorkspaceTool: (tool: QualifiedContributionId) => void;
   refreshFiles: () => void | Promise<void>;
@@ -138,6 +140,62 @@ export interface WorkspaceLabelContribution {
   order?: number;
   visible?: (context: WorkspaceLabelContext) => boolean;
   items: (context: WorkspaceLabelContext) => WorkspaceLabelItem[];
+}
+
+export type ThemeColorScheme = "dark" | "light";
+
+export type ThemeToken =
+  | "--pi-bg"
+  | "--pi-surface"
+  | "--pi-surface-hover"
+  | "--pi-terminal-bg"
+  | "--pi-terminal-text"
+  | "--pi-border"
+  | "--pi-border-muted"
+  | "--pi-text"
+  | "--pi-text-secondary"
+  | "--pi-text-bright"
+  | "--pi-muted"
+  | "--pi-dim"
+  | "--pi-accent"
+  | "--pi-accent-border"
+  | "--pi-selection-bg"
+  | "--pi-success"
+  | "--pi-success-border"
+  | "--pi-success-bg"
+  | "--pi-success-surface"
+  | "--pi-success-ring"
+  | "--pi-warning"
+  | "--pi-warning-border"
+  | "--pi-warning-surface"
+  | "--pi-danger"
+  | "--pi-purple"
+  | "--pi-purple-border"
+  | "--pi-purple-surface"
+  | "--pi-overlay"
+  | "--pi-shadow-soft"
+  | "--pi-shadow"
+  | "--pi-shadow-strong"
+  | "--pi-bg-overlay-soft"
+  | "--pi-bg-overlay"
+  | "--pi-success-bg-overlay"
+  | "--pi-terminal-selection";
+
+export type ThemeTokens = Record<ThemeToken, string>;
+
+export interface ThemeContribution {
+  id: LocalContributionId;
+  name: string;
+  description?: string;
+  order?: number;
+  colorScheme: ThemeColorScheme;
+  tokens: ThemeTokens;
+}
+
+export interface QualifiedThemeContribution extends ThemeContribution {
+  id: QualifiedContributionId;
+  pluginId: PluginId;
+  localId: LocalContributionId;
 }
 
 export interface QualifiedWorkspaceLabelContribution extends WorkspaceLabelContribution {

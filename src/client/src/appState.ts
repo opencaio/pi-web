@@ -21,6 +21,7 @@ export interface AppState {
   commandDialog: Extract<CommandResult, { type: "select" }> | undefined;
   modelDialog: { title: string; options: CommandOption[]; selectedValue?: string } | undefined;
   thinkingDialog: { title: string; options: CommandOption[]; selectedValue?: string } | undefined;
+  themeDialog: { title: string; options: CommandOption[]; selectedValue?: string } | undefined;
   authDialog: AuthDialogState | undefined;
   actionPaletteOpen: boolean;
   projectDialogOpen: boolean;
@@ -67,6 +68,7 @@ export function initialAppState(): AppState {
     commandDialog: undefined,
     modelDialog: undefined,
     thinkingDialog: undefined,
+    themeDialog: undefined,
     authDialog: undefined,
     actionPaletteOpen: false,
     projectDialogOpen: false,

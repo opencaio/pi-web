@@ -3,7 +3,8 @@ import type { Workspace } from "../api";
 import { initialAppState, type AppState } from "../appState";
 import { corePlugin } from "./core";
 import { PluginRegistry } from "./registry";
-import type { PluginRuntimeContext } from "./types";
+import { themePackPlugin } from "./themes";
+import type { PluginRuntimeContext, ThemeTokens } from "./types";
 
 function createContext(statePatch: Partial<AppState> = {}) {
   const calls: string[] = [];
@@ -14,6 +15,7 @@ function createContext(statePatch: Partial<AppState> = {}) {
     addProject: vi.fn(() => { calls.push("addProject"); }),
     configureAuth: vi.fn(() => { calls.push("configureAuth"); }),
     logoutAuth: vi.fn(() => { calls.push("logoutAuth"); }),
+    openThemePicker: vi.fn(() => { calls.push("openThemePicker"); }),
     selectMainView: vi.fn((view: AppState["mainView"]) => { calls.push(`selectMainView:${view}`); }),
     selectWorkspaceTool: vi.fn((tool: AppState["workspaceTool"]) => { calls.push(`selectWorkspaceTool:${tool}`); }),
     refreshFiles: vi.fn(() => { calls.push("refreshFiles"); }),
@@ -81,6 +83,41 @@ describe("PluginRegistry", () => {
     expect(calls).toEqual(["refreshGit"]);
   });
 
+  it("collects built-in Pi Web themes from an in-app plugin", () => {
+    const registry = new PluginRegistry();
+    registry.register({ id: "themes", plugin: themePackPlugin });
+
+    expect(registry.getThemes().map((theme) => ({ id: theme.id, colorScheme: theme.colorScheme }))).toEqual([
+      { id: "themes:current", colorScheme: "dark" },
+      { id: "themes:docs-dark", colorScheme: "dark" },
+      { id: "themes:docs-light", colorScheme: "light" },
+    ]);
+  });
+
+  it("collects theme contributions in contribution order", () => {
+    const registry = new PluginRegistry();
+    registry.register({
+      id: "example",
+      plugin: {
+        apiVersion: 1,
+        name: "Example",
+        activate: () => ({
+          contributions: {
+            themes: [
+              { id: "last", name: "Last", order: 20, colorScheme: "dark", tokens: testThemeTokens() },
+              { id: "first", name: "First", order: 10, colorScheme: "light", tokens: testThemeTokens() },
+            ],
+          },
+        }),
+      },
+    });
+
+    expect(registry.getThemes().map((theme) => ({ id: theme.id, pluginId: theme.pluginId, localId: theme.localId, name: theme.name }))).toEqual([
+      { id: "example:first", pluginId: "example", localId: "first", name: "First" },
+      { id: "example:last", pluginId: "example", localId: "last", name: "Last" },
+    ]);
+  });
+
   it("collects workspace label items in contribution order", () => {
     const registry = new PluginRegistry();
     const workspace = testWorkspace();
@@ -110,4 +147,44 @@ describe("PluginRegistry", () => {
 
 function testWorkspace(): Workspace {
   return { id: "w1", projectId: "p1", path: "/tmp/project", label: "main", isMain: true, isGitRepo: true, isGitWorktree: false };
+}
+
+function testThemeTokens(): ThemeTokens {
+  return {
+    "--pi-bg": "#000000",
+    "--pi-surface": "#000000",
+    "--pi-surface-hover": "#000000",
+    "--pi-terminal-bg": "#000000",
+    "--pi-terminal-text": "#000000",
+    "--pi-border": "#000000",
+    "--pi-border-muted": "#000000",
+    "--pi-text": "#000000",
+    "--pi-text-secondary": "#000000",
+    "--pi-text-bright": "#000000",
+    "--pi-muted": "#000000",
+    "--pi-dim": "#000000",
+    "--pi-accent": "#000000",
+    "--pi-accent-border": "#000000",
+    "--pi-selection-bg": "#000000",
+    "--pi-success": "#000000",
+    "--pi-success-border": "#000000",
+    "--pi-success-bg": "#000000",
+    "--pi-success-surface": "#000000",
+    "--pi-success-ring": "#000000",
+    "--pi-warning": "#000000",
+    "--pi-warning-border": "#000000",
+    "--pi-warning-surface": "#000000",
+    "--pi-danger": "#000000",
+    "--pi-purple": "#000000",
+    "--pi-purple-border": "#000000",
+    "--pi-purple-surface": "#000000",
+    "--pi-overlay": "#000000",
+    "--pi-shadow-soft": "#000000",
+    "--pi-shadow": "#000000",
+    "--pi-shadow-strong": "#000000",
+    "--pi-bg-overlay-soft": "#000000",
+    "--pi-bg-overlay": "#000000",
+    "--pi-success-bg-overlay": "#000000",
+    "--pi-terminal-selection": "#000000",
+  };
 }

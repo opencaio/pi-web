@@ -70,8 +70,8 @@ export class CodeViewer extends LitElement {
 const viewerTheme = EditorView.theme({
   "&": {
     height: "100%",
-    color: "#e6edf3",
-    backgroundColor: "#0d1117",
+    color: "var(--pi-text)",
+    backgroundColor: "var(--pi-bg)",
     fontSize: "12px",
   },
   ".cm-scroller": {
@@ -79,9 +79,9 @@ const viewerTheme = EditorView.theme({
     lineHeight: "1.45",
   },
   ".cm-gutters": {
-    backgroundColor: "#0d1117",
-    color: "#6e7681",
-    borderRight: "1px solid #21262d",
+    backgroundColor: "var(--pi-bg)",
+    color: "var(--pi-dim)",
+    borderRight: "1px solid var(--pi-border-muted)",
   },
   ".cm-activeLineGutter": {
     backgroundColor: "transparent",

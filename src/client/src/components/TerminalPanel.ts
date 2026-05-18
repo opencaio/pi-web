@@ -1,16 +1,15 @@
 import { css, html, LitElement } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
-import { Terminal, type ITerminalOptions } from "@xterm/xterm";
+import { Terminal, type ITerminalOptions, type ITheme } from "@xterm/xterm";
 import { FitAddon, type ITerminalDimensions } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { terminalSocket, terminalsApi, type TerminalInfo, type Workspace } from "../api";
 
-const TERMINAL_OPTIONS: ITerminalOptions = {
+const TERMINAL_OPTIONS_BASE: ITerminalOptions = {
   cursorBlink: true,
   convertEol: true,
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
   fontSize: 13,
-  theme: { background: "#05070a", foreground: "#e6edf3", cursor: "#58a6ff", selectionBackground: "#264f78" },
 };
 
 const DEFAULT_TERMINAL_SIZE: TerminalSize = { cols: 100, rows: 30 };
@@ -31,9 +30,16 @@ export class TerminalPanel extends LitElement {
   private socket: WebSocket | undefined;
   private resizeObserver: ResizeObserver | undefined;
   private intersectionObserver: IntersectionObserver | undefined;
+  private themeObserver: MutationObserver | undefined;
   private suppressTerminalInput = false;
   private observedCwd: string | undefined;
   private loadedCwd: string | undefined;
+
+  override connectedCallback(): void {
+    super.connectedCallback();
+    this.themeObserver = new MutationObserver(() => { this.applyTerminalTheme(); });
+    this.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
+  }
 
   override firstUpdated(): void {
     this.intersectionObserver = new IntersectionObserver((entries) => {
@@ -45,6 +51,8 @@ export class TerminalPanel extends LitElement {
   override disconnectedCallback(): void {
     this.intersectionObserver?.disconnect();
     this.intersectionObserver = undefined;
+    this.themeObserver?.disconnect();
+    this.themeObserver = undefined;
     this.disposeTerminalView();
     super.disconnectedCallback();
   }
@@ -126,7 +134,7 @@ export class TerminalPanel extends LitElement {
   private ensureTerminalView(): void {
     const workspace = this.workspace;
     if (!this.visible || this.terminal !== undefined || this.selectedId === undefined || this.terminalHost === undefined || workspace === undefined) return;
-    const terminal = new Terminal(TERMINAL_OPTIONS);
+    const terminal = new Terminal(terminalOptions(this));
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.open(this.terminalHost);
@@ -205,13 +213,17 @@ export class TerminalPanel extends LitElement {
     if (currentSize !== undefined) return currentSize;
     if (this.terminal !== undefined || this.terminalHost === undefined) return undefined;
 
-    const measuringTerminal = new Terminal(TERMINAL_OPTIONS);
+    const measuringTerminal = new Terminal(terminalOptions(this));
     const measuringFitAddon = new FitAddon();
     measuringTerminal.loadAddon(measuringFitAddon);
     measuringTerminal.open(this.terminalHost);
     const size = terminalSizeFromDimensions(measuringFitAddon.proposeDimensions());
     measuringTerminal.dispose();
     return size;
+  }
+
+  private applyTerminalTheme(): void {
+    if (this.terminal !== undefined) this.terminal.options.theme = terminalTheme(this);
   }
 
   private send(message: { type: "input"; data: string } | { type: "resize"; cols: number; rows: number }): void {
@@ -249,21 +261,21 @@ export class TerminalPanel extends LitElement {
 
   static override styles = css`
     :host { flex: 1 1 auto; min-height: 0; display: flex; }
-    .terminal-shell { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: #05070a; }
-    .terminal-tabs { flex: 0 0 auto; display: flex; gap: 6px; align-items: center; padding: 6px; border-bottom: 1px solid #21262d; background: #0d1117; overflow: auto; }
-    button { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 180px; border: 1px solid #30363d; border-radius: 7px; background: #161b22; color: #e6edf3; padding: 5px 7px; cursor: pointer; }
-    button.selected { border-color: #58a6ff; background: #0d2847; }
-    button.new { flex: 0 0 auto; color: #8b949e; }
+    .terminal-shell { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--pi-terminal-bg); }
+    .terminal-tabs { flex: 0 0 auto; display: flex; gap: 6px; align-items: center; padding: 6px; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-bg); overflow: auto; }
+    button { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 180px; border: 1px solid var(--pi-border); border-radius: 7px; background: var(--pi-surface); color: var(--pi-text); padding: 5px 7px; cursor: pointer; }
+    button.selected { border-color: var(--pi-accent); background: var(--pi-selection-bg); }
+    button.new { flex: 0 0 auto; color: var(--pi-muted); }
     button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    button small { color: #8b949e; font-size: 14px; line-height: 1; }
-    button small:hover { color: #ff7b72; }
+    button small { color: var(--pi-muted); font-size: 14px; line-height: 1; }
+    button small:hover { color: var(--pi-danger); }
     button:disabled { opacity: .5; cursor: not-allowed; }
     .terminal-host { flex: 1 1 auto; min-height: 0; padding: 6px; box-sizing: border-box; overflow: hidden; }
     .terminal-host .xterm { height: 100%; cursor: text; position: relative; user-select: none; }
     .terminal-host .xterm.focus, .terminal-host .xterm:focus { outline: none; }
     .terminal-host .xterm-helpers { position: absolute; top: 0; z-index: 5; }
     .terminal-host .xterm-helper-textarea { position: absolute !important; left: -9999em !important; top: 0 !important; width: 0 !important; height: 0 !important; min-width: 0 !important; min-height: 0 !important; padding: 0 !important; border: 0 !important; margin: 0 !important; opacity: 0 !important; z-index: -5 !important; white-space: nowrap !important; overflow: hidden !important; resize: none !important; outline: 0 !important; appearance: none !important; }
-    .terminal-host .xterm-viewport { position: absolute; inset: 0; overflow-y: scroll; cursor: default; background-color: #05070a; }
+    .terminal-host .xterm-viewport { position: absolute; inset: 0; overflow-y: scroll; cursor: default; background-color: var(--pi-terminal-bg); }
     .terminal-host .xterm-screen { position: relative; }
     .terminal-host .xterm-screen canvas { position: absolute; left: 0; top: 0; }
     .terminal-host .xterm-char-measure-element { display: inline-block; visibility: hidden; position: absolute; top: 0; left: -9999em; line-height: normal; }
@@ -272,8 +284,8 @@ export class TerminalPanel extends LitElement {
     .terminal-host .xterm-accessibility-tree { font-family: monospace; user-select: text; white-space: pre; }
     .terminal-host .xterm-accessibility-tree > div { transform-origin: left; width: fit-content; }
     .terminal-host .live-region { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
-    .error { flex: 0 0 auto; margin: 0; padding: 8px; color: #ff7b72; border-bottom: 1px solid #30363d; background: #161b22; }
-    .muted { margin: 10px; color: #8b949e; }
+    .error { flex: 0 0 auto; margin: 0; padding: 8px; color: var(--pi-danger); border-bottom: 1px solid var(--pi-border); background: var(--pi-surface); }
+    .muted { margin: 10px; color: var(--pi-muted); }
     .xterm { height: 100%; }
   `;
 }
@@ -310,6 +322,24 @@ async function socketDataToString(data: unknown): Promise<string> {
   if (data instanceof ArrayBuffer) return new TextDecoder().decode(data);
   if (data instanceof Blob) return await data.text();
   return String(data);
+}
+
+function terminalOptions(element: HTMLElement): ITerminalOptions {
+  return { ...TERMINAL_OPTIONS_BASE, theme: terminalTheme(element) };
+}
+
+function terminalTheme(element: HTMLElement): ITheme {
+  return {
+    background: themeColor(element, "--pi-terminal-bg", "#05070a"),
+    foreground: themeColor(element, "--pi-terminal-text", "#e6edf3"),
+    cursor: themeColor(element, "--pi-accent", "#58a6ff"),
+    selectionBackground: themeColor(element, "--pi-terminal-selection", "#264f78"),
+  };
+}
+
+function themeColor(element: HTMLElement, name: string, fallback: string): string {
+  const value = getComputedStyle(element).getPropertyValue(name).trim();
+  return value === "" ? fallback : value;
 }
 
 function terminalSizeFromDimensions(dimensions: ITerminalDimensions | undefined): TerminalSize | undefined {

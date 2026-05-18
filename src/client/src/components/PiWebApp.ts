@@ -12,7 +12,9 @@ import { WorkspaceController } from "../controllers/workspaceController";
 import { KeyboardShortcutDispatcher } from "../keyboardShortcuts";
 import { RealtimeSocket } from "../sessionSocket";
 import type { QualifiedContributionId, QualifiedWorkspacePanelContribution, PluginRuntimeContext, WorkspacePanelContext } from "../plugins/types";
+import { DEFAULT_THEME_ID, applyPiWebTheme, readStoredThemeId } from "../theme";
 import { corePlugin } from "../plugins/core";
+import { themePackPlugin } from "../plugins/themes";
 import { loadExternalPlugins } from "../plugins/external";
 import { PluginRegistry } from "../plugins/registry";
 import { queryNamespace, readNamespacedString } from "../namespacedQueryArgs";
@@ -77,6 +79,8 @@ export class PiWebApp extends LitElement {
   private readonly mobileNavigationMedia = typeof window !== "undefined" && "matchMedia" in window ? window.matchMedia("(max-width: 760px)") : undefined;
   private terminalAutoStartWorkspaceId: string | undefined;
   private readonly plugins = createPluginRegistry();
+  private preferredThemeId: QualifiedContributionId = readStoredThemeId() ?? DEFAULT_THEME_ID;
+  @state() private activeThemeId: QualifiedContributionId = DEFAULT_THEME_ID;
   @state() private isMobileNavigationLayout = this.mobileNavigationMedia?.matches ?? false;
   @state() private expandedMobileNavigationSection: NavigationSection | "none" | undefined;
   private readonly onPopState = () => void this.withChatScrollTransition(() => this.restoreRoute(false));
@@ -101,6 +105,7 @@ export class PiWebApp extends LitElement {
     document.addEventListener("visibilitychange", this.onVisibilityChange);
     window.addEventListener("keydown", this.onKeyDown);
     this.mobileNavigationMedia?.addEventListener("change", this.onMobileNavigationMediaChange);
+    this.applyPreferredTheme(false);
     this.connectRealtime();
     void this.loadExternalPlugins();
     void this.loadProjectsAndRestoreRoute();
@@ -387,6 +392,7 @@ export class PiWebApp extends LitElement {
   private async loadExternalPlugins(): Promise<void> {
     try {
       for (const registration of await loadExternalPlugins()) this.plugins.register(registration);
+      this.applyPreferredTheme(false);
       this.requestUpdate();
     } catch (error) {
       console.warn("Failed to load external Pi Web plugins", error);
@@ -401,6 +407,7 @@ export class PiWebApp extends LitElement {
       addProject: () => { this.setState({ projectDialogOpen: true }); },
       configureAuth: () => this.auth.openLogin(),
       logoutAuth: () => this.auth.openLogout(),
+      openThemePicker: () => { this.openThemeDialog(); },
       selectMainView: (view) => { this.selectMainView(view); },
       selectWorkspaceTool: (tool) => { this.openWorkspaceTool(tool); },
       refreshFiles: () => this.files.refreshFiles(),
@@ -439,6 +446,40 @@ export class PiWebApp extends LitElement {
     const slash = value.indexOf("/");
     if (slash <= 0) return;
     await this.sessions.setModel(value.slice(0, slash), value.slice(slash + 1));
+  }
+
+  private openThemeDialog() {
+    const themes = this.plugins.getThemes();
+    this.setState({
+      themeDialog: {
+        title: "Select Theme",
+        selectedValue: this.activeThemeId,
+        options: themes.map((theme) => ({
+          value: theme.id,
+          label: `${theme.name}${theme.id === this.activeThemeId ? " ✓ current" : ""}`,
+          description: theme.description === undefined ? theme.colorScheme : `${theme.colorScheme} · ${theme.description}`,
+        })),
+      },
+    });
+  }
+
+  private pickTheme(value: string) {
+    const theme = this.plugins.getThemes().find((candidate) => candidate.id === value);
+    this.setState({ themeDialog: undefined });
+    if (theme === undefined) return;
+    this.preferredThemeId = theme.id;
+    this.activeThemeId = theme.id;
+    applyPiWebTheme(theme);
+  }
+
+  private applyPreferredTheme(persist: boolean): void {
+    const themes = this.plugins.getThemes();
+    const theme = themes.find((candidate) => candidate.id === this.preferredThemeId)
+      ?? themes.find((candidate) => candidate.id === DEFAULT_THEME_ID)
+      ?? themes[0];
+    if (theme === undefined) return;
+    this.activeThemeId = theme.id;
+    applyPiWebTheme(theme, { persist });
   }
 
   private async openThinkingDialog() {
@@ -491,6 +532,7 @@ export class PiWebApp extends LitElement {
         ${this.renderWorkspacePanel()}
         ${state.actionPaletteOpen ? html`<action-palette .actions=${this.getActions()} .onRun=${(actionId: string) => { this.setState({ actionPaletteOpen: false }); this.runAction(actionId); }} .onCancel=${() => { this.setState({ actionPaletteOpen: false }); }}></action-palette>` : null}
         ${state.projectDialogOpen ? html`<project-dialog .onSubmit=${(path: string, create: boolean) => this.projects.addProject(path, create)} .onCancel=${() => { this.setState({ projectDialogOpen: false }); }}></project-dialog>` : null}
+        ${state.themeDialog !== undefined ? html`<command-picker title=${state.themeDialog.title} .options=${state.themeDialog.options} .selectedValue=${state.themeDialog.selectedValue} .onPick=${(value: string) => { this.pickTheme(value); }} .onCancel=${() => { this.setState({ themeDialog: undefined }); }}></command-picker>` : null}
       </div>
     `;
   }
@@ -501,6 +543,7 @@ export class PiWebApp extends LitElement {
 function createPluginRegistry(): PluginRegistry {
   const registry = new PluginRegistry();
   registry.register({ id: "core", plugin: corePlugin });
+  registry.register({ id: "themes", plugin: themePackPlugin });
   return registry;
 }
 
