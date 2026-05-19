@@ -7,6 +7,7 @@ import { shouldRequestEarlierMessages } from "../chatHistoryLoading";
 import type { SessionActivity, SessionStatus } from "../api";
 import type { ChatLine, ChatPart } from "./shared";
 import { chatStyles } from "./shared";
+import "./ConversationMeter";
 import "./FormattedText";
 import "./ToolExecutionView";
 
@@ -34,6 +35,15 @@ function isScrollPosition(value: unknown): value is { index?: number; key?: stri
     && (("key" in value && typeof value.key === "string") || ("index" in value && typeof value.index === "number"));
 }
 
+function clampPercent(value: number): number {
+  return clampNumber(value, 0, 100);
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
 @customElement("chat-view")
 export class ChatView extends LitElement {
   @property({ attribute: false }) messages: ChatLine[] = [];
@@ -53,11 +63,13 @@ export class ChatView extends LitElement {
   @state() private openGroupKeys = new Set<string>();
   @state() private expandedMetaKey: string | undefined;
   @state() private copiedMessageKey: string | undefined;
+  @state() private currentConversationIndex: number | undefined;
   private suppressScrollSave = false;
   private suppressLoadMoreRequests = false;
   private saveScrollTimer?: number;
   private loadMoreCheckFrame: number | undefined;
   private scrollToBottomFrame: number | undefined;
+  private conversationRailFrame: number | undefined;
   private groupedMessagesInput?: ChatLine[];
   private groupedMessagesStart = 0;
   private groupedMessagesCache: ChatGroup[] = [];
@@ -87,6 +99,7 @@ export class ChatView extends LitElement {
     window.clearTimeout(this.saveScrollTimer);
     if (this.loadMoreCheckFrame !== undefined) cancelAnimationFrame(this.loadMoreCheckFrame);
     if (this.scrollToBottomFrame !== undefined) cancelAnimationFrame(this.scrollToBottomFrame);
+    if (this.conversationRailFrame !== undefined) cancelAnimationFrame(this.conversationRailFrame);
     window.removeEventListener("resize", this.onViewportResize);
     window.visualViewport?.removeEventListener("resize", this.onViewportResize);
     super.disconnectedCallback();
@@ -108,6 +121,7 @@ export class ChatView extends LitElement {
     if (changed.has("loadingMore") && !this.loadingMore) this.loadMoreRequested = false;
     if (changed.has("hasMore") && !this.hasMore) this.loadMoreRequested = false;
     if (!changed.has("sessionId") && changed.has("messages") && this.pinnedToBottom) this.scrollToBottom();
+    if (changed.has("messages") || changed.has("messageStart") || changed.has("messageTotal") || changed.has("hasMore") || changed.has("loadingMore")) this.scheduleConversationRailUpdate();
     if (changed.has("messages") || changed.has("hasMore") || changed.has("loadingMore")) this.requestLoadMoreIfNeeded();
   }
 
@@ -115,7 +129,7 @@ export class ChatView extends LitElement {
     const groups = this.groupedMessages();
     return html`
       <div class="chat-wrap">
-        ${this.renderHistoryIndicator()}
+        ${this.renderConversationRail()}
         <div class="chat" @scroll=${() => { this.onScroll(); }} @wheel=${(event: WheelEvent) => { this.onWheel(event); }} @touchstart=${(event: TouchEvent) => { this.onTouchStart(event); }} @touchmove=${(event: TouchEvent) => { this.onTouchMove(event); }}>
           ${this.renderHistoryBoundary()}
           ${repeat(
@@ -226,19 +240,24 @@ export class ChatView extends LitElement {
     return activity.detail !== undefined && activity.detail !== "" ? `${activity.label}: ${activity.detail}` : activity.label;
   }
 
-  private renderHistoryIndicator() {
+  private renderConversationRail() {
     if (!this.messages.length || this.messageTotal <= 0) return null;
-    const loadedCount = this.messages.length;
-    const loadedPercent = Math.min(100, Math.round((loadedCount / this.messageTotal) * 100));
-    const olderCount = this.messageStart;
-    const fullHistory = olderCount <= 0
-      ? "full history loaded"
-      : `${String(olderCount)} older not loaded · ${String(loadedPercent)}% loaded`;
-    return html`
-      <div class="history-indicator">
-        <div>${fullHistory}</div>
-      </div>
-    `;
+    const total = this.conversationDisplayTotal();
+    const position = this.conversationPositionPercent(total);
+    const loadedPercent = this.hasMore ? clampPercent((this.messages.length / total) * 100) : 100;
+    return html`<conversation-meter .positionPercent=${position} .loadedPercent=${loadedPercent}></conversation-meter>`;
+  }
+
+  private conversationDisplayTotal(): number {
+    if (!this.hasMore && this.messageStart === 0) return Math.max(1, this.messages.length);
+    return Math.max(1, this.messageTotal, this.messageStart + this.messages.length);
+  }
+
+  private conversationPositionPercent(total = this.conversationDisplayTotal()): number {
+    if (total <= 1) return 100;
+    const fallbackIndex = this.pinnedToBottom ? this.messageStart + this.messages.length - 1 : this.messageStart;
+    const index = clampNumber(this.currentConversationIndex ?? fallbackIndex, 0, total - 1);
+    return clampPercent((index / (total - 1)) * 100);
   }
 
   private renderHistoryBoundary() {
@@ -449,6 +468,7 @@ export class ChatView extends LitElement {
   private onScroll() {
     this.requestLoadMoreIfNeeded();
     this.updatePinnedToBottomFromScroll();
+    this.scheduleConversationRailUpdate();
     if (!this.suppressScrollSave) this.scheduleScrollPositionSave();
   }
 
@@ -644,6 +664,29 @@ export class ChatView extends LitElement {
   private scheduleScrollPositionSave() {
     window.clearTimeout(this.saveScrollTimer);
     this.saveScrollTimer = window.setTimeout(() => { this.saveScrollPosition(); }, 180);
+  }
+
+  private scheduleConversationRailUpdate(): void {
+    if (this.conversationRailFrame !== undefined) return;
+    this.conversationRailFrame = requestAnimationFrame(() => {
+      this.conversationRailFrame = undefined;
+      this.updateConversationRailPosition();
+    });
+  }
+
+  private updateConversationRailPosition(): void {
+    if (!this.messages.length || this.messageTotal <= 0) {
+      this.currentConversationIndex = undefined;
+      return;
+    }
+    const total = this.conversationDisplayTotal();
+    const article = this.firstVisibleArticle();
+    const index = Number(article?.dataset["index"]);
+    if (Number.isFinite(index)) {
+      this.currentConversationIndex = clampNumber(index, 0, Math.max(0, total - 1));
+      return;
+    }
+    this.currentConversationIndex = clampNumber(this.pinnedToBottom ? this.messageStart + this.messages.length - 1 : this.messageStart, 0, Math.max(0, total - 1));
   }
 
   private readStoredScrollPosition(): { index?: number; key?: string; offset: number } | undefined {
