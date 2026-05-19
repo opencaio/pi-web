@@ -1,5 +1,5 @@
 import { LitElement, html, type TemplateResult } from "lit";
-import { customElement, property } from "lit/decorators.js";
+import { customElement, property, query, state } from "lit/decorators.js";
 import type { FileContentResponse, FileTreeEntry, GitDiffResponse, GitStatusResponse, Workspace } from "../api";
 import type { AppState } from "../appState";
 import type { QualifiedContributionId, QualifiedWorkspacePanelContribution, WorkspaceLabelItem, WorkspacePanelContext } from "../plugins/types";
@@ -32,6 +32,32 @@ export class WorkspacePanel extends LitElement {
   @property({ attribute: false }) onSelectDiff: (path: string) => void = () => undefined;
   @property({ type: Number }) activeTerminalCount = 0;
   @property({ type: Boolean }) terminalAutoStart = false;
+  @query(".workspace-header-strip") private workspaceHeaderStrip?: HTMLElement;
+  @state() private workspaceHeaderCanScrollLeft = false;
+  @state() private workspaceHeaderCanScrollRight = false;
+
+  private observedWorkspaceHeaderStrip: HTMLElement | undefined;
+  private workspaceHeaderResizeObserver: ResizeObserver | undefined;
+  private readonly onWorkspaceHeaderScroll = () => {
+    this.updateWorkspaceHeaderScrollState();
+  };
+
+  override firstUpdated(): void {
+    this.observeWorkspaceHeaderStrip();
+    this.updateWorkspaceHeaderScrollState();
+  }
+
+  override updated(): void {
+    this.observeWorkspaceHeaderStrip();
+    this.updateWorkspaceHeaderScrollState();
+  }
+
+  override disconnectedCallback(): void {
+    this.workspaceHeaderResizeObserver?.disconnect();
+    this.workspaceHeaderResizeObserver = undefined;
+    this.observedWorkspaceHeaderStrip = undefined;
+    super.disconnectedCallback();
+  }
 
   override render() {
     const workspace = this.workspace;
@@ -41,14 +67,18 @@ export class WorkspacePanel extends LitElement {
     const context = this.createPanelContext(workspace);
     return html`
       <header>
-        ${this.hideToolTabs ? null : html`
-          <div class="tabs">
-            ${visiblePanels.map((panel) => html`
-              <button class=${selectedPanel?.id === panel.id ? "selected" : ""} @click=${() => { this.onSelectTool(panel.id); }}>${this.renderPanelTitle(panel, context)}</button>
-            `)}
+        <div class=${this.workspaceHeaderFrameClass()}>
+          <div class="workspace-header-strip" @scroll=${this.onWorkspaceHeaderScroll}>
+            ${this.hideToolTabs ? null : html`
+              <div class="tabs">
+                ${visiblePanels.map((panel) => html`
+                  <button class=${selectedPanel?.id === panel.id ? "selected" : ""} @click=${() => { this.onSelectTool(panel.id); }}>${this.renderPanelTitle(panel, context)}</button>
+                `)}
+              </div>
+            `}
+            <small>${renderWorkspaceLabel(workspace.label, this.workspaceLabelItems, workspace.path)}</small>
           </div>
-        `}
-        <small>${renderWorkspaceLabel(workspace.label, this.workspaceLabelItems, workspace.path)}</small>
+        </div>
       </header>
       ${selectedPanel === undefined ? html`<section class="empty">No workspace panels registered.</section>` : html`
         <div class="panel-content">
@@ -62,6 +92,32 @@ export class WorkspacePanel extends LitElement {
     const badge = panel.badge?.(context);
     if (badge === undefined || badge === "") return html`${panel.title}`;
     return html`${panel.title} <span class="tab-badge">${badge}</span>`;
+  }
+
+  private workspaceHeaderFrameClass(): string {
+    return `workspace-header-scroll-frame${this.workspaceHeaderCanScrollLeft ? " can-scroll-left" : ""}${this.workspaceHeaderCanScrollRight ? " can-scroll-right" : ""}`;
+  }
+
+  private observeWorkspaceHeaderStrip(): void {
+    const strip = this.workspaceHeaderStrip;
+    if (this.observedWorkspaceHeaderStrip === strip) return;
+    this.workspaceHeaderResizeObserver?.disconnect();
+    this.observedWorkspaceHeaderStrip = strip;
+    this.workspaceHeaderResizeObserver = undefined;
+    if (strip === undefined || typeof ResizeObserver === "undefined") return;
+    this.workspaceHeaderResizeObserver = new ResizeObserver(() => {
+      this.updateWorkspaceHeaderScrollState();
+    });
+    this.workspaceHeaderResizeObserver.observe(strip);
+  }
+
+  private updateWorkspaceHeaderScrollState(): void {
+    const strip = this.workspaceHeaderStrip;
+    const maxScrollLeft = strip === undefined ? 0 : Math.max(0, strip.scrollWidth - strip.clientWidth);
+    const canScrollLeft = strip !== undefined && strip.scrollLeft > 1;
+    const canScrollRight = strip !== undefined && maxScrollLeft - strip.scrollLeft > 1;
+    if (this.workspaceHeaderCanScrollLeft !== canScrollLeft) this.workspaceHeaderCanScrollLeft = canScrollLeft;
+    if (this.workspaceHeaderCanScrollRight !== canScrollRight) this.workspaceHeaderCanScrollRight = canScrollRight;
   }
 
   private createPanelContext(workspace: Workspace): WorkspacePanelContext {

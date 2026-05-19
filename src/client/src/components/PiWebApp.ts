@@ -43,6 +43,7 @@ export class PiWebApp extends LitElement {
   @state() private state: AppState = initialAppState();
   @query("chat-view") private chatView?: ChatView;
   @query("prompt-editor") private promptEditor?: PromptEditor;
+  @query(".mobile-tabs") private mobileTabs?: HTMLElement;
 
   private readonly sessions = new SessionController(
     () => this.state,
@@ -79,6 +80,8 @@ export class PiWebApp extends LitElement {
   private readonly realtime = new RealtimeSocket();
   private readonly activeTerminalIds = new Set<string>();
   private readonly mobileNavigationMedia = typeof window !== "undefined" && "matchMedia" in window ? window.matchMedia("(max-width: 760px)") : undefined;
+  private observedMobileTabs: HTMLElement | undefined;
+  private mobileTabsResizeObserver: ResizeObserver | undefined;
   private terminalAutoStartWorkspaceId: string | undefined;
   private piWebStatusTimer: number | undefined;
   private readonly plugins = createPluginRegistry();
@@ -86,6 +89,8 @@ export class PiWebApp extends LitElement {
   @state() private activeThemeId: QualifiedContributionId = DEFAULT_THEME_ID;
   @state() private isMobileNavigationLayout = this.mobileNavigationMedia?.matches ?? false;
   @state() private expandedMobileNavigationSection: NavigationSection | "none" | undefined;
+  @state() private mobileTabsCanScrollLeft = false;
+  @state() private mobileTabsCanScrollRight = false;
   private readonly onPopState = () => void this.withChatScrollTransition(() => this.restoreRoute(false));
   private readonly onFocus = () => {
     void this.sessions.refreshSelectedSession();
@@ -99,6 +104,10 @@ export class PiWebApp extends LitElement {
   };
   private readonly onMobileNavigationMediaChange = (event: MediaQueryListEvent) => {
     this.isMobileNavigationLayout = event.matches;
+    this.updateMobileTabsScrollState();
+  };
+  private readonly onMobileTabsScroll = () => {
+    this.updateMobileTabsScrollState();
   };
   private readonly onKeyDown = (event: KeyboardEvent) => {
     if (this.keyboard.handle(event, this.getActions())) {
@@ -135,7 +144,20 @@ export class PiWebApp extends LitElement {
     this.git.dispose();
     if (this.piWebStatusTimer !== undefined) window.clearInterval(this.piWebStatusTimer);
     this.piWebStatusTimer = undefined;
+    this.mobileTabsResizeObserver?.disconnect();
+    this.mobileTabsResizeObserver = undefined;
+    this.observedMobileTabs = undefined;
     super.disconnectedCallback();
+  }
+
+  override firstUpdated(): void {
+    this.observeMobileTabs();
+    this.updateMobileTabsScrollState();
+  }
+
+  override updated(): void {
+    this.observeMobileTabs();
+    this.updateMobileTabsScrollState();
   }
 
   private setState(patch: Partial<AppState>) {
@@ -527,18 +549,46 @@ export class PiWebApp extends LitElement {
     void this.sessions.send(text, streamingBehavior);
   }
 
+  private mobileTabsFrameClass(): string {
+    return `mobile-tabs-frame${this.mobileTabsCanScrollLeft ? " can-scroll-left" : ""}${this.mobileTabsCanScrollRight ? " can-scroll-right" : ""}`;
+  }
+
+  private observeMobileTabs(): void {
+    const mobileTabs = this.mobileTabs;
+    if (this.observedMobileTabs === mobileTabs) return;
+    this.mobileTabsResizeObserver?.disconnect();
+    this.observedMobileTabs = mobileTabs;
+    this.mobileTabsResizeObserver = undefined;
+    if (mobileTabs === undefined || typeof ResizeObserver === "undefined") return;
+    this.mobileTabsResizeObserver = new ResizeObserver(() => {
+      this.updateMobileTabsScrollState();
+    });
+    this.mobileTabsResizeObserver.observe(mobileTabs);
+  }
+
+  private updateMobileTabsScrollState(): void {
+    const mobileTabs = this.mobileTabs;
+    const maxScrollLeft = mobileTabs === undefined ? 0 : Math.max(0, mobileTabs.scrollWidth - mobileTabs.clientWidth);
+    const canScrollLeft = mobileTabs !== undefined && mobileTabs.scrollLeft > 1;
+    const canScrollRight = mobileTabs !== undefined && maxScrollLeft - mobileTabs.scrollLeft > 1;
+    if (this.mobileTabsCanScrollLeft !== canScrollLeft) this.mobileTabsCanScrollLeft = canScrollLeft;
+    if (this.mobileTabsCanScrollRight !== canScrollRight) this.mobileTabsCanScrollRight = canScrollRight;
+  }
+
   override render() {
     const state = this.state;
     return html`
       <div class=${`shell ${state.mainView === "navigation" ? "navigation-view" : state.mainView === "chat" ? "chat-view" : "workspace-view"}`}>
         <aside>${this.isMobileNavigationLayout ? null : this.renderNavigationPanel(false)}</aside>
         <main class=${state.mainView === "chat" ? "chat-view" : state.mainView === "navigation" ? "navigation-view" : "workspace-view"}>
-          <div class="mobile-tabs">
-            <button class=${state.mainView === "navigation" ? "mobile-navigation-tab selected" : "mobile-navigation-tab"} @click=${() => { this.selectMainView("navigation"); }}>Sessions</button>
-            <button class=${state.mainView === "chat" ? "selected" : ""} @click=${() => { this.selectMainView("chat"); }}>Chat</button>
-            ${this.visibleWorkspacePanels().map((panel) => html`
-              <button class=${state.mainView === panel.id ? "selected" : ""} @click=${() => { this.openWorkspaceTool(panel.id); }}>${this.renderMobilePanelTitle(panel)}</button>
-            `)}
+          <div class=${this.mobileTabsFrameClass()}>
+            <div class="mobile-tabs" @scroll=${this.onMobileTabsScroll}>
+              <button class=${state.mainView === "navigation" ? "mobile-navigation-tab selected" : "mobile-navigation-tab"} @click=${() => { this.selectMainView("navigation"); }}>Sessions</button>
+              <button class=${state.mainView === "chat" ? "selected" : ""} @click=${() => { this.selectMainView("chat"); }}>Chat</button>
+              ${this.visibleWorkspacePanels().map((panel) => html`
+                <button class=${state.mainView === panel.id ? "selected" : ""} @click=${() => { this.openWorkspaceTool(panel.id); }}>${this.renderMobilePanelTitle(panel)}</button>
+              `)}
+            </div>
           </div>
           ${state.error ? html`<div class="error">${state.error}</div>` : null}
           <div class="mobile-navigation-panel">${this.isMobileNavigationLayout ? this.renderNavigationPanel(true) : null}</div>
