@@ -30,6 +30,7 @@ export class SessionList extends LitElement {
   @property({ attribute: false }) onSelect?: (session: SessionInfo) => void;
   @property({ attribute: false }) onStart?: () => void;
   @property({ attribute: false }) onToggleCollapsed?: () => void;
+  @property({ attribute: false }) onArchivedCollapsed?: () => void;
   @state() private openMenuSessionId: string | undefined;
   @state() private menuStyle = "";
   @state() private archivedExpanded = false;
@@ -56,7 +57,8 @@ export class SessionList extends LitElement {
     if (changed.has("sessions") && this.openMenuSessionId !== undefined && !this.sessions.some((session) => session.id === this.openMenuSessionId)) this.openMenuSessionId = undefined;
     if (changed.has("collapsed") && this.collapsed) this.openMenuSessionId = undefined;
     if (changed.has("sessions") && !this.sessions.some((session) => session.archived === true)) this.archivedExpanded = false;
-    if (this.selected?.archived === true && !this.archivedExpanded) {
+    const previousSelected = changed.get("selected");
+    if (changed.has("selected") && this.selected?.archived === true && (previousSelected?.id !== this.selected.id || previousSelected.archived !== true) && !this.archivedExpanded) {
       this.archivedExpanded = true;
       void this.updateComplete.then(() => { this.scrollSelectedIntoView(); });
       return;
@@ -138,7 +140,10 @@ export class SessionList extends LitElement {
 
   private toggleArchived() {
     this.archivedExpanded = !this.archivedExpanded;
-    if (!this.archivedExpanded) this.openMenuSessionId = undefined;
+    if (!this.archivedExpanded) {
+      this.openMenuSessionId = undefined;
+      this.onArchivedCollapsed?.();
+    }
   }
 
   private scrollSelectedIntoView(): void {

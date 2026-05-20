@@ -32,6 +32,11 @@ export function selectPreferredSession(sessions: SessionInfo[], options?: { targ
   return sessions.find((session) => session.archived !== true);
 }
 
+export function shouldDeselectAfterArchivedCollapse(sessions: SessionInfo[], selectedSession: SessionInfo | undefined): boolean {
+  if (selectedSession?.archived !== true) return false;
+  return !sessions.some((session) => session.archived !== true);
+}
+
 function sessionByIdOrPrefix(sessions: SessionInfo[], sessionId: string): SessionInfo | undefined {
   return sessions.find((session) => session.id === sessionId || session.id.startsWith(sessionId));
 }

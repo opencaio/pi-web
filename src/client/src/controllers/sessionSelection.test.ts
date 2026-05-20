@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionInfo } from "../api";
-import { InMemorySessionSelectionMemory, markSessionArchived, selectPreferredSession, selectionAfterArchivingSession } from "./sessionSelection";
+import { InMemorySessionSelectionMemory, markSessionArchived, selectPreferredSession, selectionAfterArchivingSession, shouldDeselectAfterArchivedCollapse } from "./sessionSelection";
 
 describe("selectPreferredSession", () => {
   it("prefers an explicit target session by id", () => {
@@ -21,8 +21,20 @@ describe("selectPreferredSession", () => {
     expect(selectPreferredSession(sessions, { latestSessionId: "s2" })?.id).toBe("s2");
   });
 
+  it("does not select an archived session without an explicit or remembered selection", () => {
+    const sessions = [{ ...testSession("s1"), archived: true }];
+
+    expect(selectPreferredSession(sessions)).toBeUndefined();
+  });
+
   it("can remember an archived selected session", () => {
     const sessions = [{ ...testSession("s1"), archived: true }, testSession("s2")];
+
+    expect(selectPreferredSession(sessions, { latestSessionId: "s1" })?.id).toBe("s1");
+  });
+
+  it("can remember an archived selected session when only archived sessions remain", () => {
+    const sessions = [{ ...testSession("s1"), archived: true }];
 
     expect(selectPreferredSession(sessions, { latestSessionId: "s1" })?.id).toBe("s1");
   });
@@ -65,6 +77,18 @@ describe("markSessionArchived", () => {
 
     expect(next).toEqual([{ ...sessions[0], archived: true, archivedAt: "later" }, sessions[1]]);
     expect(sessions[0]?.archived).toBeUndefined();
+  });
+});
+
+describe("shouldDeselectAfterArchivedCollapse", () => {
+  it("deselects archived selections only when no active sessions remain", () => {
+    const archived = { ...testSession("archived"), archived: true };
+    const active = testSession("active");
+
+    expect(shouldDeselectAfterArchivedCollapse([archived], archived)).toBe(true);
+    expect(shouldDeselectAfterArchivedCollapse([archived, active], archived)).toBe(false);
+    expect(shouldDeselectAfterArchivedCollapse([archived], undefined)).toBe(false);
+    expect(shouldDeselectAfterArchivedCollapse([archived], active)).toBe(false);
   });
 });
 

@@ -405,6 +405,7 @@ export class PiWebApp extends LitElement {
         .collapsible=${this.isMobileNavigationLayout}
         .collapsed=${this.isNavigationSectionCollapsed("sessions")}
         .onToggleCollapsed=${() => { this.toggleNavigationSection("sessions"); }}
+        .onArchivedCollapsed=${() => { this.sessions.clearSelectionAfterArchivedCollapse(); }}
         .onStart=${() => openChatAfter(() => this.sessions.startSession())}
         .onSelect=${(session: SessionInfo) => openChatAfter(() => this.sessions.selectSession(session))}
         .onArchive=${(session: SessionInfo) => this.sessions.archiveSession(session)}

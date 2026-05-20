@@ -4,6 +4,7 @@ import { loadCachedNewSessions, markCachedNewSessionInfo, rememberCachedNewSessi
 import { initialAppState, type AppState } from "../appState";
 import { loadDraft, saveDraft } from "../promptDraftStorage";
 import { SessionController, type SessionEventSocket } from "./sessionController";
+import { InMemorySessionSelectionMemory } from "./sessionSelection";
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>();
@@ -130,5 +131,59 @@ describe("SessionController", () => {
     expect(loadDraft(replacementSession.id)).toBe("draft text");
     expect(loadCachedNewSessions().map((session) => session.id)).toEqual([replacementSession.id]);
     expect(urlUpdates).toEqual([{ replace: true }]);
+  });
+
+  it("forgets the selected active session when archiving leaves only archived sessions", async () => {
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession] };
+    const urlUpdates: ({ replace?: boolean | undefined } | undefined)[] = [];
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      archive: () => Promise.resolve({ archived: true }),
+      messages: () => Promise.resolve(emptyPage),
+      status: (sessionId) => Promise.resolve(status(sessionId)),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      (options) => { urlUpdates.push(options); },
+      new InMemorySessionSelectionMemory(),
+      { api, socket: new FakeSocket() },
+    );
+
+    await controller.selectSession(oldSession, { updateUrl: false });
+    await controller.archiveSession();
+
+    expect(state.selectedSession).toBeUndefined();
+    expect(state.sessions).toHaveLength(1);
+    expect(state.sessions[0]).toMatchObject({ ...oldSession, archived: true });
+    expect(typeof state.sessions[0]?.archivedAt).toBe("string");
+    expect(controller.preferredSession(workspace.path, state.sessions, undefined)).toBeUndefined();
+    expect(urlUpdates).toEqual([undefined]);
+  });
+
+  it("forgets archived selections when the archived section collapse clears selection", async () => {
+    const archivedSession = { ...oldSession, archived: true, archivedAt: "later" };
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [archivedSession] };
+    const urlUpdates: ({ replace?: boolean | undefined } | undefined)[] = [];
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      messages: () => Promise.resolve(emptyPage),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      (options) => { urlUpdates.push(options); },
+      new InMemorySessionSelectionMemory(),
+      { api, socket: new FakeSocket() },
+    );
+
+    await controller.selectSession(archivedSession, { updateUrl: false });
+    expect(controller.preferredSession(workspace.path, state.sessions, undefined)).toBe(archivedSession);
+
+    controller.clearSelectionAfterArchivedCollapse();
+
+    expect(state.selectedSession).toBeUndefined();
+    expect(controller.preferredSession(workspace.path, state.sessions, undefined)).toBeUndefined();
+    expect(urlUpdates).toEqual([undefined]);
   });
 });

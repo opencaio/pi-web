@@ -5,7 +5,7 @@ import { clearDraft, moveDraft } from "../promptDraftStorage";
 import { ChatTranscriptStore } from "../chatTranscriptStore";
 import { isShellInput } from "../inputModes";
 import { SessionSocket, type GlobalSessionEvent, type SessionUiEvent } from "../sessionSocket";
-import { InMemorySessionSelectionMemory, markSessionArchived, selectPreferredSession, selectionAfterArchivingSession, type SessionSelectionMemory } from "./sessionSelection";
+import { InMemorySessionSelectionMemory, markSessionArchived, selectPreferredSession, selectionAfterArchivingSession, shouldDeselectAfterArchivedCollapse, type SessionSelectionMemory } from "./sessionSelection";
 import type { GetState, SetState, UpdateUrl } from "./types";
 
 const MESSAGE_PAGE_SIZE = 100;
@@ -55,10 +55,25 @@ export class SessionController {
   }
 
   clearActiveSession() {
+    this.selectionSeq += 1;
     this.socket.close();
     this.catchupStreamSessionId = undefined;
     this.clearPendingTranscriptEvents();
     this.setState({ selectedSession: undefined, messages: [], messagePageStart: 0, messagePageTotal: 0, isLoadingEarlierMessages: false, isReceivingPartialStream: false, status: undefined, activity: undefined });
+  }
+
+  deselectSession(options?: { forgetRememberedSelection?: boolean | undefined; updateUrl?: boolean | undefined }) {
+    const state = this.getState();
+    const cwd = state.selectedSession?.cwd ?? state.selectedWorkspace?.path;
+    if (options?.forgetRememberedSelection === true && cwd !== undefined) this.sessionSelection.forgetWorkspace(cwd);
+    this.clearActiveSession();
+    if (options?.updateUrl !== false) this.updateUrl();
+  }
+
+  clearSelectionAfterArchivedCollapse(): void {
+    const state = this.getState();
+    if (!shouldDeselectAfterArchivedCollapse(state.sessions, state.selectedSession)) return;
+    this.deselectSession({ forgetRememberedSelection: true });
   }
 
   async startSession() {
@@ -217,10 +232,7 @@ export class SessionController {
       this.setState({ sessions });
 
       if (selectionChange.type === "select") await this.selectSession(selectionChange.session);
-      else if (selectionChange.type === "clear") {
-        this.clearActiveSession();
-        this.updateUrl();
-      }
+      else if (selectionChange.type === "clear") this.deselectSession({ forgetRememberedSelection: true });
     } catch (error) {
       this.setState({ error: String(error) });
     }
