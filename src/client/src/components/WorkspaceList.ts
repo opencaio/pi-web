@@ -1,13 +1,13 @@
-import { LitElement, html, type PropertyValues } from "lit";
+import { LitElement, html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { Workspace, WorkspaceActivity } from "../api";
 import type { WorkspaceLabelItem } from "../plugins/types";
 import { workspaceActivityFor, workspaceActivityIndicator } from "../workspaceActivity";
+import { actionMenuPanelStyle } from "./actionMenu";
 import { renderActivityIndicator } from "./activityBadge";
-import { focusMovedWithinCurrentTarget, rowOverflowLensStyle, shouldOpenOverflowLensFromFocus, shouldOpenOverflowLensFromPointer } from "./rowOverflowLens";
 import { activateSelectableRow, activateSelectableRowFromKeyboard } from "./selectableRow";
 import { listStyles } from "./shared";
-import { renderWorkspaceLabelItems } from "./workspaceLabel";
+import { renderWorkspaceLabelInlineItems } from "./workspaceLabel";
 
 @customElement("workspace-list")
 export class WorkspaceList extends LitElement {
@@ -19,12 +19,27 @@ export class WorkspaceList extends LitElement {
   @property({ attribute: false }) activities: Record<string, WorkspaceActivity> = {};
   @property({ attribute: false }) onSelect?: (workspace: Workspace) => void;
   @property({ attribute: false }) onToggleCollapsed?: () => void;
-  @state() private overflowLensWorkspaceId: string | undefined;
-  @state() private overflowLensStyle = "";
+  @state() private openMenuWorkspaceId: string | undefined;
+  @state() private menuStyle = "";
+
+  private readonly onDocumentClick = (event: MouseEvent) => {
+    if (event.composedPath().includes(this)) return;
+    this.openMenuWorkspaceId = undefined;
+  };
+
+  override connectedCallback(): void {
+    super.connectedCallback();
+    document.addEventListener("click", this.onDocumentClick);
+  }
+
+  override disconnectedCallback(): void {
+    document.removeEventListener("click", this.onDocumentClick);
+    super.disconnectedCallback();
+  }
 
   protected override updated(changed: PropertyValues<this>): void {
-    if (changed.has("workspaces") && this.overflowLensWorkspaceId !== undefined && !this.workspaces.some((workspace) => workspace.id === this.overflowLensWorkspaceId)) this.overflowLensWorkspaceId = undefined;
-    if (changed.has("collapsed") && this.collapsed) this.overflowLensWorkspaceId = undefined;
+    if (changed.has("workspaces") && this.openMenuWorkspaceId !== undefined && !this.workspaces.some((workspace) => workspace.id === this.openMenuWorkspaceId)) this.openMenuWorkspaceId = undefined;
+    if (changed.has("collapsed") && this.collapsed) this.openMenuWorkspaceId = undefined;
     if ((changed.has("selected") || changed.has("workspaces") || changed.has("collapsed")) && !this.collapsed) this.scrollSelectedIntoView();
   }
 
@@ -33,28 +48,20 @@ export class WorkspaceList extends LitElement {
       <section>
         <h2>${this.renderHeading()}</h2>
         ${this.collapsed ? null : this.workspaces.map((workspace) => {
-          const label = `${workspace.label}${workspace.isMain ? " · main" : ""}`;
+          const label = workspacePrimaryLabel(workspace);
           const items = this.workspaceLabelItems(workspace);
           return html`
             <div
               class=${`action-row workspace-row ${this.selected?.id === workspace.id ? "selected" : ""}`}
               tabindex="0"
-              title=${workspace.path}
-              @pointerenter=${(event: PointerEvent) => { if (shouldOpenOverflowLensFromPointer(event)) this.openOverflowLens(workspace.id, event.currentTarget); }}
-              @pointerleave=${() => { this.closeOverflowLens(workspace.id); }}
-              @focusin=${(event: FocusEvent) => { if (shouldOpenOverflowLensFromFocus(event)) this.openOverflowLens(workspace.id, event.currentTarget); }}
-              @focusout=${(event: FocusEvent) => { this.closeOverflowLensOnFocusOut(workspace.id, event); }}
+              title=${label}
               @click=${(event: MouseEvent) => { activateSelectableRow(event, () => this.onSelect?.(workspace)); }}
               @keydown=${(event: KeyboardEvent) => { this.handleWorkspaceKeydown(event, workspace); }}
             >
               <div class="action-main">
                 ${this.renderWorkspaceMain(label, items, workspace)}
               </div>
-              ${this.overflowLensWorkspaceId === workspace.id ? html`
-                <div class="row-overflow-lens" style=${this.overflowLensStyle}>
-                  ${this.renderWorkspaceMain(label, items, workspace)}
-                </div>
-              ` : null}
+              ${this.renderWorkspaceMenu(label, items, workspace)}
             </div>
           `;
         })}
@@ -69,40 +76,82 @@ export class WorkspaceList extends LitElement {
     return html`<button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} Workspaces</span><small class="section-selected" title=${selectedTitle}>${selectedSummary}</small></span><small class="section-count">${this.workspaces.length}</small></button>`;
   }
 
-  private renderActivity(workspace: Workspace) {
+  private renderActivity(workspace: Workspace): TemplateResult | undefined {
     const kind = workspaceActivityIndicator(workspaceActivityFor(workspace, this.activities));
-    return renderActivityIndicator(kind, kind === "terminal" ? "Workspace terminal active" : "Workspace active") ?? "";
+    return renderActivityIndicator(kind, kind === "terminal" ? "Workspace terminal active" : "Workspace active");
   }
 
-  private renderWorkspaceMain(label: string, items: WorkspaceLabelItem[], workspace: Workspace) {
+  private renderWorkspaceMain(label: string, items: WorkspaceLabelItem[], workspace: Workspace): TemplateResult {
     return html`
-      <span class="workspace-label">
-        <span class="workspace-label-base">${label}</span>
-        ${renderWorkspaceLabelItems(items)}
+      <span class="workspace-primary">
+        ${this.renderActivity(workspace)}
+        <span class="workspace-primary-label">${label}</span>
       </span>
-      <small>${this.renderActivity(workspace)}${workspace.path}</small>
+      ${items.length === 0 ? null : html`
+        <small class="workspace-secondary">
+          <span class="workspace-label">${renderWorkspaceLabelInlineItems(items)}</span>
+        </small>
+      `}
     `;
   }
 
-  private openOverflowLens(workspaceId: string, target: EventTarget | null): void {
-    this.overflowLensWorkspaceId = workspaceId;
-    this.overflowLensStyle = rowOverflowLensStyle(target);
+  private renderWorkspaceMenu(label: string, items: WorkspaceLabelItem[], workspace: Workspace): TemplateResult {
+    const open = this.openMenuWorkspaceId === workspace.id;
+    const menuId = workspaceMenuId(workspace.id);
+    return html`
+      <div class="action-menu">
+        <button
+          class="action-menu-toggle"
+          title="Workspace actions and details"
+          aria-label=${`Actions and details for ${label}`}
+          aria-expanded=${String(open)}
+          aria-controls=${menuId}
+          @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(workspace.id, event.currentTarget); }}
+        >⋯</button>
+        ${open ? html`
+          <div class="action-menu-panel workspace-menu-panel" id=${menuId} style=${this.menuStyle} @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
+            ${this.renderWorkspaceDetails(label, items, workspace)}
+          </div>
+        ` : null}
+      </div>
+    `;
   }
 
-  private closeOverflowLens(workspaceId: string): void {
-    if (this.overflowLensWorkspaceId === workspaceId) this.overflowLensWorkspaceId = undefined;
+  private renderWorkspaceDetails(label: string, items: WorkspaceLabelItem[], workspace: Workspace): TemplateResult {
+    return html`
+      <dl class="workspace-menu-details">
+        <div class="workspace-detail-row">
+          <dt>${workspace.branch === undefined ? "Workspace" : "Branch"}</dt>
+          <dd>${label}</dd>
+        </div>
+        <div class="workspace-detail-row">
+          <dt>Path</dt>
+          <dd title=${workspace.path}>${workspace.path}</dd>
+        </div>
+        ${items.length === 0 ? null : html`
+          <div class="workspace-detail-row">
+            <dt>Details</dt>
+            <dd><span class="workspace-label">${renderWorkspaceLabelInlineItems(items)}</span></dd>
+          </div>
+        `}
+      </dl>
+    `;
   }
 
-  private closeOverflowLensOnFocusOut(workspaceId: string, event: FocusEvent): void {
-    if (focusMovedWithinCurrentTarget(event)) return;
-    this.closeOverflowLens(workspaceId);
+  private toggleMenu(workspaceId: string, target: EventTarget | null): void {
+    if (this.openMenuWorkspaceId === workspaceId) {
+      this.openMenuWorkspaceId = undefined;
+      return;
+    }
+    this.menuStyle = actionMenuPanelStyle(target);
+    this.openMenuWorkspaceId = workspaceId;
   }
 
   private handleWorkspaceKeydown(event: KeyboardEvent, workspace: Workspace): void {
-    if (event.key === "Escape" && this.overflowLensWorkspaceId === workspace.id) {
+    if (event.key === "Escape" && this.openMenuWorkspaceId === workspace.id) {
       event.preventDefault();
       event.stopPropagation();
-      this.overflowLensWorkspaceId = undefined;
+      this.openMenuWorkspaceId = undefined;
       return;
     }
     activateSelectableRowFromKeyboard(event, () => this.onSelect?.(workspace));
@@ -113,4 +162,12 @@ export class WorkspaceList extends LitElement {
   }
 
   static override styles = listStyles;
+}
+
+function workspacePrimaryLabel(workspace: Workspace): string {
+  return `${workspace.branch ?? workspace.label}${workspace.isMain ? " · main" : ""}`;
+}
+
+function workspaceMenuId(workspaceId: string): string {
+  return `workspace-menu-${workspaceId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 }

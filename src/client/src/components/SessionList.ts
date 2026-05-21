@@ -3,6 +3,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import type { SessionActivity, SessionInfo, SessionStatus } from "../api";
 import { isCachedNewSessionInfo } from "../cachedNewSessions";
 import { isSessionActive } from "../../../shared/activity";
+import { actionMenuPanelStyle } from "./actionMenu";
 import { renderActivityIndicator } from "./activityBadge";
 import { activateSelectableRow, activateSelectableRowFromKeyboard } from "./selectableRow";
 import { listStyles } from "./shared";
@@ -131,10 +132,7 @@ export class SessionList extends LitElement {
       this.openMenuSessionId = undefined;
       return;
     }
-    if (target instanceof HTMLElement) {
-      const rect = target.getBoundingClientRect();
-      this.menuStyle = `top: ${String(rect.bottom + 4)}px; right: ${String(window.innerWidth - rect.right)}px;`;
-    }
+    this.menuStyle = actionMenuPanelStyle(target);
     this.openMenuSessionId = sessionId;
   }
 

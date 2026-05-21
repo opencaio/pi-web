@@ -2,6 +2,7 @@ import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { Project, Workspace, WorkspaceActivity } from "../api";
 import { projectActivityIndicator } from "../workspaceActivity";
+import { actionMenuPanelStyle } from "./actionMenu";
 import { renderActivityIndicator } from "./activityBadge";
 import { activateSelectableRow, activateSelectableRowFromKeyboard } from "./selectableRow";
 import { listStyles } from "./shared";
@@ -85,10 +86,7 @@ export class ProjectList extends LitElement {
       this.openMenuProjectId = undefined;
       return;
     }
-    if (target instanceof HTMLElement) {
-      const rect = target.getBoundingClientRect();
-      this.menuStyle = `top: ${String(rect.bottom + 4)}px; right: ${String(window.innerWidth - rect.right)}px;`;
-    }
+    this.menuStyle = actionMenuPanelStyle(target);
     this.openMenuProjectId = projectId;
   }
 

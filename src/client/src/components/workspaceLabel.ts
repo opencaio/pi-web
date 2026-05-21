@@ -14,6 +14,10 @@ export function renderWorkspaceLabelItems(items: WorkspaceLabelItem[] = []): Tem
   return items.map((item) => html`<span class="workspace-label-separator">·</span>${renderWorkspaceLabelItem(item)}`);
 }
 
+export function renderWorkspaceLabelInlineItems(items: WorkspaceLabelItem[] = []): TemplateResult[] {
+  return items.map((item, index) => html`${index === 0 ? null : html`<span class="workspace-label-separator">·</span>`}${renderWorkspaceLabelItem(item)}`);
+}
+
 function renderWorkspaceLabelItem(item: WorkspaceLabelItem): TemplateResult {
   if (item.type === "render") return html`<span class="workspace-label-render">${item.render()}</span>`;
   if (item.type === "link" && isSafeHref(item.href)) {
