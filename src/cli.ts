@@ -72,6 +72,17 @@ interface ServiceExecutables {
   web: ServiceExecutable;
 }
 
+type ServiceHealth = "running" | "stopped" | "not-installed" | "unknown";
+
+interface ServiceRuntimeStatus {
+  ref: ServiceRef;
+  health: ServiceHealth;
+  detail: string;
+  target: string;
+  filePath: string;
+  pid?: string;
+}
+
 const serviceRefs: Record<ServiceId, ServiceRef> = {
   sessiond: {
     id: "sessiond",
@@ -507,8 +518,16 @@ function launchdPlistPath(ref: ServiceRef): string {
   return join(launchdServiceDir, ref.launchdPlistName);
 }
 
+function serviceFilePath(backend: ServiceBackend, ref: ServiceRef): string {
+  return backend.kind === "systemd" ? systemdServicePath(ref) : launchdPlistPath(ref);
+}
+
 function serviceFileExists(backend: ServiceBackend, ref: ServiceRef): boolean {
-  return existsSync(backend.kind === "systemd" ? systemdServicePath(ref) : launchdPlistPath(ref));
+  return existsSync(serviceFilePath(backend, ref));
+}
+
+function installedServiceIds(backend: ServiceBackend): Set<ServiceId> {
+  return new Set(allServiceRefs().filter((ref) => serviceFileExists(backend, ref)).map((ref) => ref.id));
 }
 
 function installedServiceRefs(backend: ServiceBackend): ServiceRef[] {
@@ -606,6 +625,117 @@ async function uninstallNativeServices(backend: ServiceBackend): Promise<void> {
   else await uninstallLaunchdServices();
 }
 
+function serviceDisplayName(ref: ServiceRef): string {
+  if (ref.id === "sessiond") return "session daemon";
+  if (ref.id === "uiDev") return "UI/API dev server";
+  return "web server";
+}
+
+function statusServiceRefs(backend: ServiceBackend): ServiceRef[] {
+  const ids = installedServiceIds(backend);
+  if (ids.size === 0) return [];
+  if (ids.has("web") && ids.has("uiDev")) return startOrder(allServiceRefs());
+  if (ids.has("uiDev")) return serviceRefList(["sessiond", "uiDev"]);
+  if (ids.has("web")) return productionServiceRefs();
+  return serviceRefList(["sessiond"]);
+}
+
+function serviceInstallMode(backend: ServiceBackend): string {
+  const ids = installedServiceIds(backend);
+  if (ids.size === 0) return "not installed";
+  const hasSessiond = ids.has("sessiond");
+  const hasWeb = ids.has("web");
+  const hasUiDev = ids.has("uiDev");
+  if (hasWeb && hasUiDev) return "mixed";
+  if (hasUiDev) return hasSessiond ? "development" : "development (incomplete)";
+  if (hasWeb) return hasSessiond ? "production" : "production (incomplete)";
+  return "partial";
+}
+
+function makeServiceRuntimeStatus(ref: ServiceRef, health: ServiceHealth, detail: string, target: string, filePath: string, pid?: string): ServiceRuntimeStatus {
+  return {
+    ref,
+    health,
+    detail,
+    target,
+    filePath,
+    ...(pid === undefined ? {} : { pid }),
+  };
+}
+
+function firstOutputLine(...values: string[]): string | undefined {
+  for (const value of values) {
+    const line = value.trim().split("\n").find((candidate) => candidate.trim() !== "");
+    if (line !== undefined) return line.trim();
+  }
+  return undefined;
+}
+
+function systemdMainPid(ref: ServiceRef): string | undefined {
+  const result = capture("systemctl", ["--user", "--no-pager", "show", ref.systemdName, "--property=MainPID", "--value"]);
+  if (result.status !== 0) return undefined;
+  const value = result.stdout.trim();
+  return value === "" || value === "0" ? undefined : value;
+}
+
+function systemdRuntimeStatus(backend: ServiceBackend, ref: ServiceRef): ServiceRuntimeStatus {
+  const target = ref.systemdName;
+  const filePath = serviceFilePath(backend, ref);
+  if (!serviceFileExists(backend, ref)) return makeServiceRuntimeStatus(ref, "not-installed", "not installed", target, filePath);
+
+  const result = capture("systemctl", ["--user", "--no-pager", "is-active", target]);
+  const state = firstOutputLine(result.stdout, result.stderr) ?? "unknown";
+  if (result.status === 0 && state === "active") return makeServiceRuntimeStatus(ref, "running", "running", target, filePath, systemdMainPid(ref));
+  return makeServiceRuntimeStatus(ref, state === "unknown" ? "unknown" : "stopped", state, target, filePath);
+}
+
+function parseLaunchdField(output: string, field: string): string | undefined {
+  const match = new RegExp(`^\\s*${field}\\s=\\s(.+)$`, "m").exec(output);
+  return match?.[1]?.trim();
+}
+
+function launchdRuntimeStatus(backend: ServiceBackend, ref: ServiceRef): ServiceRuntimeStatus {
+  const target = launchdServiceTarget(ref);
+  const filePath = serviceFilePath(backend, ref);
+  if (!serviceFileExists(backend, ref)) return makeServiceRuntimeStatus(ref, "not-installed", "not installed", target, filePath);
+
+  const result = capture("launchctl", ["print", target]);
+  if (result.status !== 0) {
+    return makeServiceRuntimeStatus(ref, "stopped", firstOutputLine(result.stderr, result.stdout) ?? "not loaded", target, filePath);
+  }
+
+  const state = parseLaunchdField(result.stdout, "state") ?? "unknown";
+  const pid = parseLaunchdField(result.stdout, "pid");
+  const health: ServiceHealth = state === "running" ? "running" : state === "unknown" ? "unknown" : "stopped";
+  return makeServiceRuntimeStatus(ref, health, state === "running" ? "running" : state, target, filePath, pid);
+}
+
+function runtimeStatus(backend: ServiceBackend, ref: ServiceRef): ServiceRuntimeStatus {
+  return backend.kind === "systemd" ? systemdRuntimeStatus(backend, ref) : launchdRuntimeStatus(backend, ref);
+}
+
+function printServiceStatus(status: ServiceRuntimeStatus): void {
+  const icon = status.health === "running" ? "✓" : "✗";
+  const pid = status.pid === undefined ? "" : `, pid ${status.pid}`;
+  console.log(`${icon} ${serviceDisplayName(status.ref)}: ${status.detail} (${status.target}${pid})`);
+  if (status.health === "not-installed") console.log(`  missing service file: ${status.filePath}`);
+}
+
+function printServiceStatusReport(backend: ServiceBackend): boolean {
+  const refs = statusServiceRefs(backend);
+  console.log(`PI WEB services: ${serviceInstallMode(backend)} (${backend.label})`);
+  if (refs.length === 0) {
+    console.log("✗ no PI WEB service files found");
+    console.log("  Run `pi-web install` or `pi-web install --dev`.");
+    return false;
+  }
+
+  const statuses = refs.map((ref) => runtimeStatus(backend, ref));
+  for (const status of statuses) printServiceStatus(status);
+  console.log("\nUse `pi-web logs` for service logs.");
+  return statuses.every((status) => status.health === "running");
+}
+
 function backendAvailabilityChecks(backend: ServiceBackend): Check[] {
   if (backend.kind === "systemd") return [["systemctl --user", ["systemctl", "--user", "--version"]]];
   return [[`launchctl ${launchdDomain()}`, ["launchctl", "print", launchdDomain()]]];
@@ -695,20 +825,12 @@ async function uninstall(): Promise<void> {
   console.log(`PI WEB ${backend.label} removed. Production and development service files were removed; config and data were left in place.`);
 }
 
-function systemdServiceAction(action: "start" | "stop" | "restart" | "status", refs: ServiceRef[]): void {
+function systemdServiceAction(action: "start" | "stop" | "restart", refs: ServiceRef[]): void {
   const orderedRefs = action === "stop" ? stopOrder(refs) : startOrder(refs);
-  run("systemctl", ["--user", action, ...orderedRefs.map((ref) => ref.systemdName)], { check: action !== "status" });
+  run("systemctl", ["--user", action, ...orderedRefs.map((ref) => ref.systemdName)], { check: true });
 }
 
-function launchdServiceAction(action: "start" | "stop" | "restart" | "status", refs: ServiceRef[]): void {
-  if (action === "status") {
-    for (const ref of refs) {
-      console.log(`\n== ${ref.launchdLabel} ==`);
-      run("launchctl", ["print", launchdServiceTarget(ref)]);
-    }
-    return;
-  }
-
+function launchdServiceAction(action: "start" | "stop" | "restart", refs: ServiceRef[]): void {
   if (action === "stop") {
     for (const ref of stopOrder(refs)) launchdBootout(ref);
     return;
@@ -723,6 +845,11 @@ function launchdServiceAction(action: "start" | "stop" | "restart" | "status", r
 
 function serviceAction(action: "start" | "stop" | "restart" | "status"): void {
   const backend = requireServiceBackend(`pi-web ${action}`);
+  if (action === "status") {
+    if (!printServiceStatusReport(backend)) process.exitCode = 1;
+    return;
+  }
+
   const refs = installedServiceRefs(backend);
   if (backend.kind === "systemd") systemdServiceAction(action, refs);
   else launchdServiceAction(action, refs);
