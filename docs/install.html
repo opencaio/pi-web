@@ -54,8 +54,8 @@
           <p class="eyebrow"><span class="pulse"></span> Installation guide</p>
           <h1>Get PI WEB running where your agents work.</h1>
           <p>
-            The best production-style setup is a Linux machine with user-level systemd services. macOS and Windows WSL
-            are useful too: run the two PI WEB processes manually, or use the installer in WSL when systemd is enabled.
+            The recommended setup runs PI WEB as per-user services. PI WEB chooses the native user-service backend for
+            your operating system.
           </p>
         </div>
       </section>
@@ -65,10 +65,10 @@
           <aside class="toc" aria-label="Install page contents">
             <strong>On this page</strong>
             <a href="#requirements">Requirements</a>
-            <a href="#linux-systemd">Linux systemd install</a>
+            <a href="#user-services">User service install</a>
             <a href="#one-line">One-line install</a>
             <a href="#pi-package">Install through Pi</a>
-            <a href="#manual-run">macOS / WSL manual run</a>
+            <a href="#manual-run">WSL / manual run</a>
             <a href="#remote-access">Remote access</a>
             <a href="#manage-services">Manage services</a>
             <a href="#configure">Configure</a>
@@ -82,7 +82,7 @@
                 <li><strong>Node.js 22 or newer</strong> and npm.</li>
                 <li><strong>Pi Coding Agent</strong> installed/configured so the <code>pi</code> command works for your user.</li>
                 <li>A shell login environment that exposes Node, npm, Pi, git, and any tools your agents need.</li>
-                <li>For the automatic installer: Linux with <code>systemctl --user</code>.</li>
+                <li>For the automatic installer: a supported per-user service manager.</li>
               </ul>
               <div class="callout warning">
                 <strong>Important PATH detail:</strong>
@@ -91,24 +91,24 @@
               </div>
             </section>
 
-            <section id="linux-systemd">
-              <h2>Recommended: Linux systemd install</h2>
+            <section id="user-services">
+              <h2>Recommended: run PI WEB as user services</h2>
               <p>
-                This creates two user services: one long-lived session daemon and one web/API service. It is the easiest
-                way to keep sessions available after SSH disconnects or browser restarts.
+                This creates two per-user services: one long-lived session daemon and one web/API service. The CLI chooses
+                the native user-service backend automatically. It is the easiest way to keep sessions available after SSH
+                disconnects, browser restarts, or web/API restarts.
               </p>
               <div class="code-card">
                 <div class="copy-row">
-                  <strong>Linux install</strong>
+                  <strong>User service install</strong>
                   <button class="copy-button" data-copy="#linux-install">Copy</button>
                 </div>
                 <pre id="linux-install"><code><span class="prompt">$</span> npm install -g @jmfederico/pi-web
-<span class="comment"># Recommended on servers so user services survive logout/reboot:</span>
-<span class="prompt">$</span> sudo loginctl enable-linger "$USER"
 <span class="prompt">$</span> pi-web install
 <span class="prompt">$</span> pi-web doctor</code></pre>
               </div>
               <p>Then open <a href="http://127.0.0.1:8504">http://127.0.0.1:8504</a>.</p>
+              <p>On Linux servers, also consider <code>sudo loginctl enable-linger "$USER"</code> so user services survive logout/reboot.</p>
             </section>
 
             <section id="one-line">
@@ -143,10 +143,10 @@
             </section>
 
             <section id="manual-run">
-              <h2>macOS / WSL manual run</h2>
+              <h2>WSL / manual run</h2>
               <p>
-                PI WEB is not Linux-only, but the <code>pi-web install</code> service setup is Linux/systemd-specific. On macOS
-                or WSL without systemd, install the package and run the daemon and web server yourself.
+                On WSL without systemd, containers without a user service manager, or other unsupported environments,
+                install the package and run the daemon and web server yourself.
               </p>
               <div class="code-card">
                 <div class="copy-row">
@@ -162,8 +162,12 @@
 <span class="prompt">$</span> PI_WEB_PORT=8504 pi-web-server</code></pre>
               </div>
               <p>
-                On modern WSL distributions with systemd enabled, the Linux installer can work. Without systemd, use the
+                On modern WSL distributions with systemd enabled, the installer can work. Without systemd, use the
                 manual run approach above.
+              </p>
+              <p>
+                From a PI WEB checkout, <code>pi-web install --dev</code> installs the split development services on supported user-service platforms.
+                <code>pi-web uninstall</code> removes both production and development service files; no uninstall flags are needed.
               </p>
             </section>
 
@@ -200,8 +204,9 @@
 <span class="prompt">$</span> pi-web logs
 <span class="prompt">$</span> pi-web restart
 <span class="prompt">$</span> pi-web doctor
-<span class="prompt">$</span> systemctl --user status pi-web-sessiond.service pi-web.service
-<span class="prompt">$</span> journalctl --user -u pi-web-sessiond.service -u pi-web.service -f</code></pre>
+
+<span class="comment"># From a checkout, install the split development services:</span>
+<span class="prompt">$</span> pi-web install --dev</code></pre>
               </div>
             </section>
 
@@ -239,8 +244,8 @@
             <section id="uninstall">
               <h2>Uninstall</h2>
               <p>
-                <code>pi-web uninstall</code> stops, disables, and removes the systemd user services. It does not remove
-                the npm package, config file, or data directory.
+                <code>pi-web uninstall</code> stops, disables, and removes PI WEB's production and development service files.
+                It does not remove the npm package, config file, or data directory.
               </p>
               <div class="code-card">
                 <div class="copy-row">

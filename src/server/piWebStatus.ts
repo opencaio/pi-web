@@ -15,8 +15,8 @@ const VERSION_CHECK_TIMEOUT_MS = 5000;
 
 const restartCommands = {
   restart: "pi-web restart",
-  restartSystemd: "systemctl --user restart pi-web-sessiond.service pi-web.service",
-  restartDev: "systemctl --user restart pi-web-sessiond.service pi-web-ui-dev.service",
+  restartSystemd: "pi-web restart",
+  restartDev: "pi-web restart",
 };
 
 interface PackageInfo {
@@ -289,10 +289,10 @@ function commandsFor(installation: PiWebInstallationInfo | undefined): PiWebStat
 
 function updateCommandFor(installation: PiWebInstallationInfo | undefined): string {
   if (installation?.kind === "pi-package") {
-    return `pi update ${installation.source ?? PI_WEB_NPM_SOURCE} && ${restartCommands.restartSystemd}`;
+    return `pi update ${installation.source ?? PI_WEB_NPM_SOURCE} && ${restartCommands.restart}`;
   }
   if (installation?.kind === "local" && installation.path !== undefined) {
-    return `cd ${shellQuote(installation.path)} && git pull && npm install && npm run build && ${restartCommands.restartSystemd}`;
+    return `cd ${shellQuote(installation.path)} && git pull && npm install && npm run build && ${restartCommands.restart}`;
   }
   return `npm install -g ${PI_WEB_PACKAGE_NAME} && ${restartCommands.restart}`;
 }
@@ -331,7 +331,7 @@ function buildMessages(components: PiWebStatusResponse["components"], release: P
       severity: "warning",
       title: "Session daemon version unavailable",
       body: `PI WEB could not check the session daemon version${components.sessiond.error === undefined ? "." : `: ${components.sessiond.error}`}`,
-      command: "systemctl --user status pi-web-sessiond.service",
+      command: "pi-web status",
     });
   } else if (components.sessiond.stale) {
     messages.push({

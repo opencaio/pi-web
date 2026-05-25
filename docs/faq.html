@@ -54,8 +54,8 @@
           <p class="eyebrow"><span class="pulse"></span> FAQ & troubleshooting</p>
           <h1>Fix the things that usually go wrong first.</h1>
           <p>
-            Most PI WEB install issues are environment issues: systemd availability, PATH setup, Node version managers,
-            or remote access expectations.
+            Most PI WEB install issues are environment issues: native service manager availability, PATH setup, Node
+            version managers, or remote access expectations.
           </p>
         </div>
       </section>
@@ -64,11 +64,11 @@
         <div class="container doc-layout">
           <aside class="toc" aria-label="FAQ contents">
             <strong>Questions</strong>
-            <a href="#is-this-linux-only">Is this Linux only?</a>
+            <a href="#is-this-linux-only">What platforms are supported?</a>
             <a href="#tools-are-not-found">Tools are failing / node not found</a>
             <a href="#doctor-fails">What does doctor check?</a>
             <a href="#nvm-fnm-asdf">nvm, fnm, or asdf issues</a>
-            <a href="#systemd-not-found">systemctl is not available</a>
+            <a href="#systemd-not-found">User service manager is unavailable</a>
             <a href="#cannot-open">I cannot open the web UI</a>
             <a href="#public-internet">Can I expose this publicly?</a>
             <a href="#laptop-or-server">Laptop or server?</a>
@@ -79,18 +79,16 @@
 
           <div class="faq-list">
             <article id="is-this-linux-only" class="faq-item">
-              <h2>Is this Linux only?</h2>
+              <h2>What platforms are supported?</h2>
               <p>
-                No. PI WEB can run anywhere its runtime dependencies work, including macOS and Windows through WSL. The
-                automatic <code>pi-web install</code> command is the Linux-specific part because it writes and manages
-                <code>systemctl --user</code> services.
+                PI WEB can run anywhere its runtime dependencies work. The automatic <code>pi-web install</code> command uses
+                a supported per-user service manager when one is available.
               </p>
               <ul>
-                <li><strong>Linux with systemd:</strong> use <code>npm install -g @jmfederico/pi-web</code> and <code>pi-web install</code>.</li>
-                <li><strong>macOS:</strong> install the package, then run <code>pi-web-sessiond</code> and <code>pi-web-server</code> manually.</li>
-                <li><strong>Windows:</strong> use WSL. If your WSL distro has systemd enabled, the installer may work; otherwise use the manual run path.</li>
+                <li><strong>User-service install:</strong> use <code>npm install -g @jmfederico/pi-web</code> and <code>pi-web install</code>.</li>
+                <li><strong>WSL:</strong> if your distro has systemd enabled, the installer may work; otherwise use the manual run path.</li>
+                <li><strong>Native Windows:</strong> outside WSL is not the recommended path today.</li>
               </ul>
-              <p>Native Windows outside WSL is not the recommended path today.</p>
             </article>
 
             <article id="tools-are-not-found" class="faq-item">
@@ -122,8 +120,8 @@
             <article id="doctor-fails" class="faq-item">
               <h2>What does <code>pi-web doctor</code> check?</h2>
               <p>
-                It checks whether the service shell and systemd user environment can find Node 22+, npm, Pi, and the Pi
-                Web binaries. It also reports whether user service lingering is enabled for server-style installs.
+                It checks whether the service shell and native service environment can find Node 22+, npm, Pi, and the Pi
+                Web binaries. It also reports user service lingering when relevant for server-style installs.
               </p>
               <p>
                 If something works in your terminal but fails in doctor, treat that as a login-shell PATH mismatch and
@@ -147,10 +145,10 @@
             </article>
 
             <article id="systemd-not-found" class="faq-item">
-              <h2><code>systemctl --user</code> is not available</h2>
+              <h2>User service manager is unavailable</h2>
               <p>
-                The automatic installer needs Linux user systemd. On macOS, WSL without systemd, containers without a
-                user systemd manager, or minimal Linux environments, run the two processes manually:
+                The automatic installer needs a supported per-user service manager. On WSL without systemd, containers
+                without a user service manager, or minimal environments, run the two processes manually:
               </p>
               <div class="code-card">
                 <div class="copy-row">
@@ -224,21 +222,20 @@
                   <strong>Session daemon logs</strong>
                   <button class="copy-button" data-copy="#session-logs">Copy</button>
                 </div>
-                <pre id="session-logs"><code><span class="prompt">$</span> systemctl --user status pi-web-sessiond.service
-<span class="prompt">$</span> journalctl --user -u pi-web-sessiond.service -f</code></pre>
+                <pre id="session-logs"><code><span class="prompt">$</span> pi-web status
+<span class="prompt">$</span> pi-web logs</code></pre>
               </div>
             </article>
 
             <article id="logs" class="faq-item">
               <h2>Where are logs?</h2>
-              <p>For the Linux systemd install, use:</p>
+              <p>Use the service log command:</p>
               <div class="code-card">
                 <div class="copy-row">
                   <strong>Logs</strong>
                   <button class="copy-button" data-copy="#logs-command">Copy</button>
                 </div>
-                <pre id="logs-command"><code><span class="prompt">$</span> pi-web logs
-<span class="prompt">$</span> journalctl --user -u pi-web-sessiond.service -u pi-web.service -f</code></pre>
+                <pre id="logs-command"><code><span class="prompt">$</span> pi-web logs</code></pre>
               </div>
             </article>
           </div>

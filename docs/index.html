@@ -103,7 +103,7 @@
 
 <span class="prompt">$</span> pi-web doctor
 ✓ login shell can find node >= 22
-✓ systemd user shell can find pi
+✓ native service shell can find pi
 ✓ ready for persistent agent work</code></pre>
           </aside>
         </div>
@@ -237,10 +237,10 @@
         <div class="container install-panel">
           <div class="install-card">
             <p class="eyebrow"><span class="pulse"></span> Quick install</p>
-            <h2>Linux servers get the smooth path.</h2>
+            <h2>Run PI WEB as user services.</h2>
             <ol>
               <li>Install the package globally with npm.</li>
-              <li>Run the installer to create user-level systemd services.</li>
+              <li>Run the installer to create native per-user services.</li>
               <li>Open the local URL, or tunnel it from a remote machine.</li>
             </ol>
             <div class="doc-actions">
@@ -251,7 +251,7 @@
 
           <div class="terminal quick-install">
             <div class="copy-row">
-              <strong>Recommended Linux install</strong>
+              <strong>User service install</strong>
               <button class="copy-button" data-copy="#home-install">Copy</button>
             </div>
             <pre id="home-install"><code><span class="prompt">$</span> npm install -g @jmfederico/pi-web
@@ -265,10 +265,10 @@
       <section class="section compact">
         <div class="container doc-grid">
           <article class="doc-card">
-            <h3>macOS and WSL?</h3>
+            <h3>WSL and containers?</h3>
             <p>
-              PI WEB itself is not Linux-only. The one-command service installer targets Linux systemd. macOS and WSL can
-              run PI WEB manually; WSL with systemd can use the installer too.
+              Use <code>pi-web install</code> where a supported per-user service manager is available. WSL works with the
+              installer when systemd is enabled; otherwise use the manual run path.
             </p>
             <a href="faq.html#is-this-linux-only">Read compatibility notes →</a>
           </article>

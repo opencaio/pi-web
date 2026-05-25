@@ -123,31 +123,23 @@ See the full [Plugin API](docs/plugins.md) for contribution types, package metad
 
 ## Install
 
-Recommended install uses npm plus systemd user services:
+Recommended install uses npm plus native per-user services.
 
 ```bash
 npm install -g @jmfederico/pi-web
-
-# Recommended on servers: keep user services running after logout/reboot.
-sudo loginctl enable-linger "$USER"
-
 pi-web install
 ```
 
-`loginctl enable-linger` is optional for local desktop use, but recommended on servers. It lets the user systemd manager start at boot and continue running after you log out, so PI WEB remains available without an active SSH/login session.
-
-This writes and starts:
-
-- `~/.config/systemd/user/pi-web-sessiond.service`
-- `~/.config/systemd/user/pi-web.service`
-
-The generated services run through `bash -lc` so they see a shell environment similar to running `pi` from your terminal.
-
-To check whether lingering is enabled:
+On Linux servers, `loginctl enable-linger` is optional but recommended so the user systemd manager starts at boot and continues running after logout:
 
 ```bash
+sudo loginctl enable-linger "$USER"
 loginctl show-user "$USER" -p Linger
 ```
+
+This writes and starts PI WEB's session daemon and web/API user services. The native user-service backend is selected automatically.
+
+The generated services run through your detected login shell (`bash`, `zsh`, or `fish` with `-lc`) so they see a shell environment similar to running `pi` from your terminal.
 
 Open <http://127.0.0.1:8504>.
 
@@ -183,7 +175,7 @@ Then in Pi:
 /pi-web doctor
 ```
 
-The Pi command is a convenience wrapper around the same service installer. When installed this way, the service installer can use PI WEB's package-local server entrypoints, so `pi-web-server` and `pi-web-sessiond` do not need to be on your shell `PATH`. `/pi-web logs` shows the last 100 journal lines; use `pi-web logs` in a shell when you want to follow logs continuously.
+The Pi command is a convenience wrapper around the same service installer. When installed this way, the service installer can use PI WEB's package-local server entrypoints, so `pi-web-server` and `pi-web-sessiond` do not need to be on your shell `PATH`. `/pi-web logs` shows the last 100 service log lines; use `pi-web logs` in a shell when you want to follow logs continuously.
 
 Advanced users may run the binaries however they prefer:
 
@@ -210,6 +202,14 @@ npm run dev:sessiond
 npm run dev:web
 npm run dev:client
 ```
+
+Or install the split development setup as native per-user services from the checkout:
+
+```bash
+pi-web install --dev
+```
+
+`pi-web install --dev` writes the session daemon plus a UI development service using the native user-service backend. `pi-web uninstall` removes both production and development service files; no uninstall flags are needed.
 
 `dev:web` also watches bundled plugin TypeScript and rebuilds the browser-loaded plugin JavaScript under `dist/pi-web-plugins/`. You can restart `dev:web` or `dev:client` without stopping active Pi sessions.
 
@@ -255,14 +255,14 @@ Environment variables:
 - `PI_WEB_SESSIOND_URL` — daemon URL used by the web process when connecting over TCP, for example `http://127.0.0.1:3001`. If you set `PI_WEB_SESSIOND_PORT`, set this for the web process too.
 - `PI_WEB_PROJECTS_FILE` — optional override for the projects storage JSON file. Defaults to `$PI_WEB_DATA_DIR/projects.json`.
 
-## systemd user services
+## Development services
 
-A practical local or server setup is two user services:
+`pi-web install --dev` creates a practical local setup with two native per-user services:
 
-- `pi-web-sessiond.service` runs `npm run start:sessiond` without autoreload.
-- `pi-web-ui-dev.service` runs `npm run dev:web` and `npm run dev:client` for API reloads, bundled plugin rebuilds, and Vite HMR.
+- `pi-web-sessiond` runs `npm run start:sessiond` from the checkout without autoreload.
+- `pi-web-ui-dev` runs `npm run dev:web` and `npm run dev:client` for API reloads, bundled plugin rebuilds, and Vite HMR.
 
-Example units:
+Under the hood, the native backends are systemd user services and LaunchAgents. For reference, an equivalent systemd setup looks like:
 
 ```ini
 # ~/.config/systemd/user/pi-web-sessiond.service
@@ -296,32 +296,29 @@ Restart=no
 WantedBy=default.target
 ```
 
-On servers, enable persistent user services so the user systemd manager starts at boot and remains running after logout:
+On Linux servers, enable persistent user services so the user systemd manager starts at boot and remains running after logout:
 
 ```bash
 sudo loginctl enable-linger "$USER"
 loginctl show-user "$USER" -p Linger
 ```
 
-After creating or changing units:
+Install or refresh the development services with:
 
 ```bash
-systemctl --user daemon-reload
-systemctl --user enable --now pi-web-sessiond.service
-systemctl --user enable --now pi-web-ui-dev.service
+pi-web install --dev
 ```
 
 Useful logs:
 
 ```bash
-journalctl --user -u pi-web-sessiond.service -f
-journalctl --user -u pi-web-ui-dev.service -f
+pi-web logs
 ```
 
 If code affecting the session daemon changes, restart it manually:
 
 ```bash
-systemctl --user restart pi-web-sessiond.service
+pi-web restart
 ```
 
 ## Current limitations

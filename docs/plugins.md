@@ -116,7 +116,7 @@ PI WEB also ships a `pi-web` status plugin that demonstrates dynamic `visible` a
 
 ## Local plugin usage
 
-This works with the production npm/systemd install. PI WEB discovers plugins from `~/.pi-web/plugins/<plugin-package>/` on the web/API side; no PI WEB rebuild or session-daemon restart is required. If `PI_WEB_DATA_DIR` is set, use `$PI_WEB_DATA_DIR/plugins` instead.
+This works with the production native-service install. PI WEB discovers plugins from `~/.pi-web/plugins/<plugin-package>/` on the web/API side; no PI WEB rebuild or session-daemon restart is required. If `PI_WEB_DATA_DIR` is set, use `$PI_WEB_DATA_DIR/plugins` instead.
 
 Symlink a plugin folder into PI WEB's local plugin directory:
 
