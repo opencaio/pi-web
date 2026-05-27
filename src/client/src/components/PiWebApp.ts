@@ -511,7 +511,11 @@ export class PiWebApp extends LitElement {
     const panelContext = workspace === undefined ? undefined : this.createWorkspacePanelContext(workspace);
     const workspaceLabelItems = workspace === undefined ? [] : this.plugins.getWorkspaceLabelItems(this.state, workspace);
     const emptyState = workspace === undefined ? this.workspacePanelEmptyState() : undefined;
-    return html`<workspace-panel .workspace=${workspace} .panelContext=${panelContext} .emptyState=${emptyState} .tool=${this.state.workspaceTool} .panels=${this.visibleWorkspacePanels()} .workspaceLabelItems=${workspaceLabelItems} .onSelectTool=${(tool: QualifiedContributionId) => { this.openWorkspaceTool(tool); }}></workspace-panel>`;
+    return html`<workspace-panel .workspace=${workspace} .panelContext=${panelContext} .emptyState=${emptyState} .tool=${this.state.workspaceTool} .panels=${this.visibleWorkspacePanels()} .workspaceLabelItems=${workspaceLabelItems} .collapsed=${this.state.workspacePanelCollapsed} .onSelectTool=${(tool: QualifiedContributionId) => { this.openWorkspaceTool(tool); }} .onToggleCollapse=${() => { this.toggleWorkspacePanelCollapse(); }}></workspace-panel>`;
+  }
+
+  private toggleWorkspacePanelCollapse(): void {
+    this.setState({ workspacePanelCollapsed: !this.state.workspacePanelCollapsed });
   }
 
   private renderNavigationPanel(autoSwitchToChat: boolean) {
@@ -1192,10 +1196,11 @@ export class PiWebApp extends LitElement {
   override render() {
     const state = this.state;
     return html`
-      <div class=${`shell ${state.mainView === "navigation" ? "navigation-view" : state.mainView === "chat" ? "chat-view" : "workspace-view"}`}>
+      <div class=${`shell ${state.mainView === "navigation" ? "navigation-view" : state.mainView === "chat" ? "chat-view" : "workspace-view"}${state.workspacePanelCollapsed ? " workspace-panel-collapsed" : ""}`}>
         <aside>${this.isMobileNavigationLayout ? null : this.renderNavigationPanel(false)}</aside>
         <main class=${state.mainView === "chat" ? "chat-view" : state.mainView === "navigation" ? "navigation-view" : "workspace-view"}>
           ${this.renderContextBar()}
+          ${state.workspacePanelCollapsed ? html`<div class="expand-panel-strip"><button class="expand-workspace-panel-button" title="Expand workspace panel" aria-label="Expand workspace panel" @click=${() => { this.toggleWorkspacePanelCollapse(); }}><svg class="expand-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 18l-6-6 6-6"/></svg></button></div>` : null}
           <div class=${this.mobileTabsFrameClass()}>
             <div class="mobile-tabs" @scroll=${this.onMobileTabsScroll}>
               <button class=${state.mainView === "navigation" ? "mobile-navigation-tab selected" : "mobile-navigation-tab"} @click=${() => { this.selectMainView("navigation"); }}>Sessions</button>
