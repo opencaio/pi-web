@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ProjectService } from "./projects/projectService.js";
-import { SessionDaemonClient } from "./sessiond/sessionDaemonClient.js";
+import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
 import { resolveWorkspaceContext } from "./workspaces/workspaceContext.js";
 import type { WorkspaceService } from "./workspaces/workspaceService.js";
 import { terminalSizeQuery } from "./terminals/terminalSize.js";

@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { WebSocket, type RawData } from "ws";
-import { SessionDaemonClient } from "./sessionDaemonClient.js";
+import { SessionDaemonClient } from "../../sessiond/sessionDaemonClient.js";
 
 export function registerSessionProxyRoutes(app: FastifyInstance, daemon = new SessionDaemonClient()): void {
   const proxy = async (request: { method: string; url: string; body?: unknown }, reply: FastifyReply) => {

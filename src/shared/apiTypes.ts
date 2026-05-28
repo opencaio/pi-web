@@ -284,13 +284,16 @@ export interface PiWebStatusMessage {
   command?: string;
 }
 
-export interface PiWebStatusResponse {
+export interface PiWebVersionResponse {
   packageName: string;
   generatedAt: string;
   components: {
     web: PiWebComponentStatus;
     sessiond: PiWebComponentStatus;
   };
+}
+
+export interface PiWebStatusResponse extends PiWebVersionResponse {
   release: PiWebReleaseStatus;
   commands: {
     update: string;

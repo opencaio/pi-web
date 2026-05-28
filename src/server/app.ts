@@ -14,7 +14,7 @@ import { registerWorkspaceExplorerRoutes } from "./workspaceExplorerRoutes.js";
 import { registerGitRoutes } from "./gitRoutes.js";
 import { registerTerminalProxyRoutes } from "./terminalProxyRoutes.js";
 import { PiWebPluginService } from "./piWebPluginService.js";
-import { getPiWebStatus } from "./piWebStatus.js";
+import { getPiWebStatus, getPiWebVersionStatus } from "./piWebStatus.js";
 
 export interface AppDependencies {
   projects?: ProjectService;
@@ -41,6 +41,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   });
 
   app.get("/api/pi-web/status", async () => getPiWebStatus());
+  app.get("/api/pi-web/version", async () => getPiWebVersionStatus());
 
   app.get("/api/projects", async () => projects.list());
 

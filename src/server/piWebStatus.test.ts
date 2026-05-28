@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { comparePackageVersions, getPiWebStatus } from "./piWebStatus.js";
-import { SessionDaemonClient } from "./sessiond/sessionDaemonClient.js";
+import { comparePackageVersions, getPiWebStatus, getPiWebVersionStatus } from "./piWebStatus.js";
+import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
 
 const originalSkipVersionCheck = process.env["PI_WEB_SKIP_VERSION_CHECK"];
 
@@ -15,6 +15,31 @@ describe("PI WEB status", () => {
     expect(comparePackageVersions("1.202605.9", "1.202605.8")).toBeGreaterThan(0);
     expect(comparePackageVersions("1.202605.8", "1.202605.8")).toBe(0);
     expect(comparePackageVersions("1.202605.7", "1.202605.8")).toBeLessThan(0);
+  });
+
+  it("returns installed and running version components without release metadata", async () => {
+    const daemon = new SessionDaemonClient();
+    vi.spyOn(daemon, "request").mockResolvedValue({
+      statusCode: 200,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        version: {
+          component: "sessiond",
+          label: "Session daemon",
+          runtimeVersion: "1.202605.7",
+          installedVersion: "1.202605.8",
+          stale: true,
+          available: true,
+        },
+      }),
+    });
+
+    const status = await getPiWebVersionStatus(daemon);
+
+    expect(status.packageName).toBe("@jmfederico/pi-web");
+    expect(status.components.web.component).toBe("web");
+    expect(status.components.sessiond.runtimeVersion).toBe("1.202605.7");
+    expect(status).not.toHaveProperty("release");
   });
 
   it("reports stale session daemon versions as messages", async () => {

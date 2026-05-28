@@ -4,8 +4,9 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DefaultPackageManager, getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
-import type { PiWebComponentStatus, PiWebInstallationInfo, PiWebReleaseStatus, PiWebServiceComponent, PiWebStatusMessage, PiWebStatusResponse } from "../shared/apiTypes.js";
-import { SessionDaemonClient } from "./sessiond/sessionDaemonClient.js";
+import type { PiWebComponentStatus, PiWebInstallationInfo, PiWebReleaseStatus, PiWebServiceComponent, PiWebStatusMessage, PiWebStatusResponse, PiWebVersionResponse } from "../shared/apiTypes.js";
+import { parsePiWebComponentStatus } from "../shared/piWebStatusParsing.js";
+import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
 
 const PI_WEB_PACKAGE_NAME = "@jmfederico/pi-web";
 const PI_WEB_NPM_SOURCE = `npm:${PI_WEB_PACKAGE_NAME}`;
@@ -47,20 +48,27 @@ export async function getPiWebComponentStatus(component: PiWebServiceComponent):
   };
 }
 
-export async function getPiWebStatus(daemon = new SessionDaemonClient()): Promise<PiWebStatusResponse> {
-  const web = await getPiWebComponentStatus("web");
-  const [installed, sessiond] = await Promise.all([
-    readInstalledPackageInfo(),
+export async function getPiWebVersionStatus(daemon = new SessionDaemonClient()): Promise<PiWebVersionResponse> {
+  const [web, sessiond] = await Promise.all([
+    getPiWebComponentStatus("web"),
     getSessiondComponentStatus(daemon),
   ]);
-  const release = await getLatestReleaseStatus(installed?.version ?? web.runtimeVersion ?? DEFAULT_VERSION);
+  return {
+    packageName: PI_WEB_PACKAGE_NAME,
+    generatedAt: new Date().toISOString(),
+    components: { web, sessiond },
+  };
+}
+
+export async function getPiWebStatus(daemon = new SessionDaemonClient()): Promise<PiWebStatusResponse> {
+  const versionStatus = await getPiWebVersionStatus(daemon);
+  const { web, sessiond } = versionStatus.components;
+  const release = await getLatestReleaseStatus(web.installedVersion ?? web.runtimeVersion ?? DEFAULT_VERSION);
   const components = { web, sessiond };
   const commands = commandsFor(web.installation ?? sessiond.installation);
   const messages = buildMessages(components, release, commands);
   return {
-    packageName: PI_WEB_PACKAGE_NAME,
-    generatedAt: new Date().toISOString(),
-    components,
+    ...versionStatus,
     release,
     commands,
     messages,
@@ -179,52 +187,11 @@ async function getSessiondComponentStatus(daemon: SessionDaemonClient): Promise<
     }
     const parsed: unknown = upstream.body === "" ? undefined : JSON.parse(upstream.body);
     const version = isRecord(parsed) ? parsed["version"] : undefined;
-    const component = parseComponentStatus(version);
+    const component = parsePiWebComponentStatus(version);
     return component ?? unavailableSessiond("health response did not include version information");
   } catch (error) {
     return unavailableSessiond(error instanceof Error ? error.message : String(error));
   }
-}
-
-function parseComponentStatus(value: unknown): PiWebComponentStatus | undefined {
-  if (!isRecord(value)) return undefined;
-  const component = value["component"];
-  const label = value["label"];
-  const runtimeVersion = value["runtimeVersion"];
-  const installedVersion = value["installedVersion"];
-  const stale = value["stale"];
-  const available = value["available"];
-  const error = value["error"];
-  const installation = parseInstallationInfo(value["installation"]);
-  if (component !== "web" && component !== "sessiond") return undefined;
-  if (typeof label !== "string" || typeof stale !== "boolean" || typeof available !== "boolean") return undefined;
-  return {
-    component,
-    label,
-    ...(typeof runtimeVersion === "string" ? { runtimeVersion } : {}),
-    ...(typeof installedVersion === "string" ? { installedVersion } : {}),
-    stale,
-    available,
-    ...(installation === undefined ? {} : { installation }),
-    ...(typeof error === "string" ? { error } : {}),
-  };
-}
-
-function parseInstallationInfo(value: unknown): PiWebInstallationInfo | undefined {
-  if (!isRecord(value)) return undefined;
-  const kind = value["kind"];
-  const path = value["path"];
-  const source = value["source"];
-  const scope = value["scope"];
-  const npmRoot = value["npmRoot"];
-  if (kind !== "pi-package" && kind !== "npm-global" && kind !== "local" && kind !== "unknown") return undefined;
-  return {
-    kind,
-    ...(typeof path === "string" ? { path } : {}),
-    ...(typeof source === "string" ? { source } : {}),
-    ...(scope === "user" || scope === "project" ? { scope } : {}),
-    ...(typeof npmRoot === "string" ? { npmRoot } : {}),
-  };
 }
 
 function unavailableSessiond(error: string): PiWebComponentStatus {

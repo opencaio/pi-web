@@ -6,6 +6,7 @@ import { homedir, userInfo } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaultPiWebConfigPath, defaultPiWebDataDir, examplePiWebConfig } from "./config.js";
+import { packageVersion, printPiWebVersionReport } from "./piWebVersionReport.js";
 import { checkNodePtyDarwinSpawnHelper, formatNodePtyDarwinSpawnHelperCheck } from "./server/diagnostics/nodePtySpawnHelper.js";
 
 const PI_WEB_PACKAGE_NAME = "@jmfederico/pi-web";
@@ -885,6 +886,10 @@ function commandCheck(command: string): string {
   return `command -v ${command}`;
 }
 
+function commandWithVersionCheck(command: string): string {
+  return `${commandCheck(command)} && (${command} --version 2>&1 || true)`;
+}
+
 function nodeVersionCheck(): string {
   return [
     commandCheck("node"),
@@ -898,21 +903,21 @@ function doctorChecks(): Check[] {
   if (backend === undefined) {
     return [
       [`${shell} can find node >= 22`, serviceShellCommand(nodeVersionCheck())],
-      [`${shell} can find npm`, serviceShellCommand(commandCheck("npm"))],
-      [`${shell} can find pi`, serviceShellCommand(commandCheck("pi"))],
+      [`${shell} can find npm`, serviceShellCommand(commandWithVersionCheck("npm"))],
+      [`${shell} can find pi`, serviceShellCommand(commandWithVersionCheck("pi"))],
     ];
   }
 
   const checks: Check[] = [
     ...backendAvailabilityChecks(backend),
     ...baseShellChecks(backend),
-    [`${shell} can find npm`, serviceShellCommand(commandCheck("npm"))],
-    [`${shell} can find pi`, serviceShellCommand(commandCheck("pi"))],
+    [`${shell} can find npm`, serviceShellCommand(commandWithVersionCheck("npm"))],
+    [`${shell} can find pi`, serviceShellCommand(commandWithVersionCheck("pi"))],
   ];
   const executables = resolveServiceExecutables(backend);
   checks.push(...executables.web.checks, ...executables.sessiond.checks);
   if (backend.kind === "systemd") {
-    checks.push([`systemd user ${shell} can find pi`, systemdUserServiceShellCommand(commandCheck("pi"))]);
+    checks.push([`systemd user ${shell} can find pi`, systemdUserServiceShellCommand(commandWithVersionCheck("pi"))]);
   }
   return checks;
 }
@@ -952,7 +957,7 @@ function printPathSetupAdvice(): void {
   }
 }
 
-function doctor(): void {
+async function doctor(): Promise<void> {
   const backend = currentServiceBackend();
   console.log(`Platform: ${platformLabel()}`);
   console.log(`Service backend: ${backend?.label ?? "manual run only"}`);
@@ -960,6 +965,9 @@ function doctor(): void {
   if (backend === undefined) {
     console.log(`- Native user service checks skipped on ${platformLabel()}`);
   }
+  console.log("");
+  await printPiWebVersionReport();
+  console.log("\nDoctor checks:");
   const ok = runChecks(doctorChecks());
   const nodePtySpawnHelperOk = printNodePtyDarwinSpawnHelperCheck();
 
@@ -1011,6 +1019,7 @@ Usage:
   pi-web uninstall
   pi-web start|stop|restart|status|logs
   pi-web doctor
+  pi-web version
 
 Recommended install:
   npm install -g @jmfederico/pi-web
@@ -1027,7 +1036,9 @@ async function main(): Promise<void> {
   else if (command === "uninstall") await uninstall();
   else if (command === "start" || command === "stop" || command === "restart" || command === "status") serviceAction(command);
   else if (command === "logs") logs();
-  else if (command === "doctor") doctor();
+  else if (command === "doctor") await doctor();
+  else if (command === "version") await printPiWebVersionReport();
+  else if (command === "--version" || command === "-v") console.log(packageVersion());
   else if (command === "help" || command === "--help" || command === "-h") help();
   else throw new Error(`Unknown command: ${command}`);
 }
