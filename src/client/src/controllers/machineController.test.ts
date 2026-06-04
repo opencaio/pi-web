@@ -72,4 +72,42 @@ describe("MachineController", () => {
     expect(state.machineStatuses[remoteMachine.id]).toMatchObject({ machineId: remoteMachine.id, ok: false, status: "offline", error: "Internal Server Error" });
     expect(state.error).toContain("Remote is offline");
   });
+
+  it("returns the fallback machine without selecting it when requested", async () => {
+    let state: AppState = { ...initialAppState(), machines: [localMachine, remoteMachine], selectedMachine: remoteMachine };
+    const setState = (patch: Partial<AppState>) => { state = { ...state, ...patch }; };
+    const updateUrl = vi.fn();
+    const projects = { loadProjects: vi.fn() };
+
+    vi.spyOn(api, "deleteMachine").mockResolvedValue({ deleted: true });
+
+    const controller = new MachineController(() => state, setState, updateUrl, projects);
+
+    const fallback = await controller.deleteMachine(remoteMachine, { selectFallback: false });
+
+    expect(fallback).toEqual(localMachine);
+    expect(state.machines).toEqual([localMachine]);
+    expect(state.selectedMachine).toEqual(remoteMachine);
+    expect(projects.loadProjects).not.toHaveBeenCalled();
+    expect(updateUrl).not.toHaveBeenCalled();
+  });
+
+  it("selects the fallback machine after deleting the selected machine by default", async () => {
+    let state: AppState = { ...initialAppState(), machines: [localMachine, remoteMachine], selectedMachine: remoteMachine, selectedProject: { id: "p1", name: "Project", path: "/repo", createdAt: "now" } };
+    const setState = (patch: Partial<AppState>) => { state = { ...state, ...patch }; };
+    const updateUrl = vi.fn();
+    const projects = { loadProjects: vi.fn() };
+
+    vi.spyOn(api, "deleteMachine").mockResolvedValue({ deleted: true });
+
+    const controller = new MachineController(() => state, setState, updateUrl, projects);
+
+    const fallback = await controller.deleteMachine(remoteMachine);
+
+    expect(fallback).toEqual(localMachine);
+    expect(state.selectedMachine).toEqual(localMachine);
+    expect(state.selectedProject).toBeUndefined();
+    expect(projects.loadProjects).toHaveBeenCalledOnce();
+    expect(updateUrl).toHaveBeenCalledOnce();
+  });
 });

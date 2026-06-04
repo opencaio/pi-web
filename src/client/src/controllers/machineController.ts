@@ -59,20 +59,27 @@ export class MachineController {
     }
   }
 
-  async deleteMachine(machine: Machine | undefined = this.getState().selectedMachine): Promise<void> {
-    if (machine === undefined) return;
+  async deleteMachine(machine: Machine | undefined = this.getState().selectedMachine, options: { selectFallback?: boolean } = {}): Promise<Machine | undefined> {
+    if (machine === undefined) return undefined;
     if (machine.kind === "local") {
       this.setState({ error: "The local machine cannot be removed." });
-      return;
+      return undefined;
     }
     try {
+      const wasSelected = this.getState().selectedMachine?.id === machine.id;
       await api.deleteMachine(machine.id);
       const machines = this.getState().machines.filter((candidate) => candidate.id !== machine.id);
       const local = machines.find((candidate) => candidate.id === "local") ?? machines[0];
       this.setState({ machines, machineStatuses: omitKey(this.getState().machineStatuses, machine.id) });
-      if (this.getState().selectedMachine?.id === machine.id && local !== undefined) await this.selectMachine(local);
+      if (wasSelected && local !== undefined) {
+        if (options.selectFallback === false) return local;
+        await this.selectMachine(local);
+        return local;
+      }
+      return undefined;
     } catch (error) {
       this.setState({ error: String(error) });
+      return undefined;
     }
   }
 

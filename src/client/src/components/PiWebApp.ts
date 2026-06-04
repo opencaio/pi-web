@@ -455,9 +455,9 @@ export class PiWebApp extends LitElement {
     setNamespacedQueryKey(TERMINAL_ROUTE_NAMESPACE, "terminal", surface.selectedTerminalId, { replace: true });
   }
 
-  private async selectMachineWithMemory(machine: Machine): Promise<void> {
+  private async selectMachineWithMemory(machine: Machine, options: { rememberCurrent?: boolean } = {}): Promise<void> {
     if (this.state.selectedMachine?.id === machine.id) return;
-    if (!this.routeRestoreInProgress) this.rememberCurrentMachineNavigation();
+    if (options.rememberCurrent !== false && !this.routeRestoreInProgress) this.rememberCurrentMachineNavigation();
     const seq = ++this.machineNavigationRestoreSeq;
     const snapshot = this.machineNavigation.latest(machine.id) ?? emptyMachineNavigationSnapshot(machine.id);
     await this.restoreRouteFor(routeFromMachineNavigationSnapshot(snapshot), false, snapshot.surface, snapshot.view);
@@ -1044,7 +1044,11 @@ export class PiWebApp extends LitElement {
   private async removeMachine(machine: Machine | undefined = this.state.selectedMachine): Promise<void> {
     if (machine === undefined || machine.kind === "local") return;
     if (!window.confirm(`Remove ${machine.name}?\n\nThis only removes it from this PI WEB gateway.`)) return;
-    await this.machines.deleteMachine(machine);
+    const wasSelected = this.state.selectedMachine?.id === machine.id;
+    if (wasSelected) this.rememberCurrentMachineNavigation();
+    const fallback = await this.machines.deleteMachine(machine, { selectFallback: !wasSelected });
+    if (!this.state.machines.some((candidate) => candidate.id === machine.id)) this.machineNavigation.forget(machine.id);
+    if (wasSelected && fallback !== undefined) await this.selectMachineWithMemory(fallback, { rememberCurrent: false });
   }
 
   private openSelectedMachine(): void {
