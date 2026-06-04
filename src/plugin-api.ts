@@ -124,14 +124,17 @@ export interface WorkspacePanelTerminal {
   runCommand(input: WorkspaceTerminalCommandInput): Promise<TerminalCommandRunHandle>;
 }
 
+export interface WorkspacePanelHost {
+  requestRender(): void;
+}
+
 export interface WorkspacePanelContext {
   machine: PluginMachine;
   workspace: Workspace;
   state?: PluginRuntimeState;
   files: WorkspacePanelFiles;
   terminal: WorkspacePanelTerminal;
-  requestRender: () => void;
-  openTerminal: (options?: { terminalId?: string | undefined }) => void;
+  host: WorkspacePanelHost;
 }
 
 export type WorkspacePanelIcon = TemplateResult;

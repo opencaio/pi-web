@@ -908,7 +908,9 @@ export class PiWebApp extends LitElement {
           open: (options) => { void this.openRuntimeTerminal(machineId, workspace, options); },
           runCommand: (input) => terminalCommandRuns.runCommand({ ...input, workspace }),
         },
-        requestRender: () => { this.requestUpdate(); },
+        host: {
+          requestRender: () => { this.requestUpdate(); },
+        },
         piWebUnstable: { terminalCommandRuns },
         fileTree: this.state.fileTree,
         expandedDirs: this.state.expandedDirs,
@@ -923,7 +925,6 @@ export class PiWebApp extends LitElement {
         activeTerminalCount: this.state.activeTerminalCount,
         selectedTerminalId: this.state.selectedTerminalId,
         terminalAutoStart: this.terminalAutoStartWorkspaceId === workspace.id,
-        openTerminal: (options) => { this.openTerminal(options); },
         onRefreshFiles: () => { void this.files.refreshFiles(); },
         onExpandDir: (path: string) => { void this.files.expandDir(path); },
         onSelectFile: (path: string) => { void this.files.selectFile(path); },

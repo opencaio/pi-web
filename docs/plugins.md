@@ -501,14 +501,15 @@ interface WorkspacePanelContext {
       open?: boolean;
     }): Promise<TerminalCommandRunHandle>;
   };
-  requestRender: () => void;
-  openTerminal: (options?: { terminalId?: string }) => void;
+  host: {
+    requestRender(): void;
+  };
 }
 ```
 
 `icon` is optional and is used in the compact mobile tab bar. Prefer an SVG rendered with the `svg` helper from `PluginActivationContext`; use `currentColor` so PI WEB themes can style it. If `icon` is omitted, mobile tabs fall back to initials from the panel title, or to the full title when initials collide.
 
-`machine`, `workspace`, `files`, `terminal`, `requestRender()`, and `openTerminal()` are documented as stable for panel callbacks. `terminal.open()` is equivalent to `openTerminal()`; new plugins should prefer `terminal.open()` so terminal-related helpers live under one capability.
+`machine`, `workspace`, `files`, `terminal`, and `host` are documented as stable for panel callbacks. Use `terminal.open()` to switch to the built-in terminal panel; pass `{ terminalId }` to deep-link to a specific terminal. Call `host.requestRender()` when async plugin-owned state changes should make PI WEB re-evaluate panel callbacks such as `badge`, `visible`, or `render`.
 
 Useful workspace and machine shapes:
 
@@ -644,8 +645,8 @@ workspacePanels: [
   {
     id: "workspace.env",
     title: "Env",
-    render: ({ files, requestRender }) => html`
-      <my-env-viewer .files=${files} .requestRender=${requestRender}></my-env-viewer>
+    render: ({ files }) => html`
+      <my-env-viewer .files=${files}></my-env-viewer>
     `,
   },
 ]
@@ -728,7 +729,7 @@ If you are an AI agent building or editing a PI WEB plugin, follow this checklis
 9. Add workspace panels for larger workspace UI.
 10. Add workspace labels for compact inline metadata.
 11. Return arrays from workspace label `items()`; return an empty array to render nothing.
-12. Use documented context helpers first: `files`, `terminal`, `requestRender`, `workspace`, `machine`, `state.selectedWorkspace`, `state.selectedSession`, and `state.piWebStatus`.
+12. Use documented context helpers first: `files`, `terminal`, `host.requestRender`, `workspace`, `machine`, `state.selectedWorkspace`, `state.selectedSession`, and `state.piWebStatus`.
 13. Do not fetch PI WEB `/api/...` endpoints directly. If an unstable runtime field is intentionally required, import the type from `@jmfederico/pi-web/plugin-api/unstable` and type-assert locally.
 14. Treat plugins as trusted code and avoid reading or displaying secrets unless intentional.
 15. After local edits, tell the user to hard reload the browser and check the console for plugin errors.

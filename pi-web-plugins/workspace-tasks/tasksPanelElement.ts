@@ -218,7 +218,7 @@ async function refreshWorkspaceConfig(context: WorkspacePanelContext): Promise<C
     detail: error instanceof Error ? error.message : String(error),
   }));
   configCache.set(key, state);
-  context.requestRender();
+  context.host.requestRender();
   window.dispatchEvent(new Event(configChangedEvent));
   return state;
 }

@@ -56,6 +56,10 @@ export interface WorkspacePanelTerminal {
   runCommand(input: WorkspaceTerminalCommandInput): Promise<TerminalCommandRunHandle>;
 }
 
+export interface WorkspacePanelHost {
+  requestRender(): void;
+}
+
 export interface PiWebUnstableRuntimeContext {
   terminalCommandRuns: TerminalCommandRunsInternalRuntime;
   openSettings?: (section?: SettingsSection) => void;
@@ -116,7 +120,7 @@ export interface WorkspacePanelContext {
   state: AppState;
   files: WorkspacePanelFiles;
   terminal: WorkspacePanelTerminal;
-  requestRender: () => void;
+  host: WorkspacePanelHost;
   piWebUnstable?: Pick<PiWebUnstableRuntimeContext, "terminalCommandRuns">;
   fileTree: FileTreeEntry[];
   expandedDirs: Record<string, FileTreeEntry[]>;
@@ -131,7 +135,6 @@ export interface WorkspacePanelContext {
   activeTerminalCount: number;
   selectedTerminalId: string | undefined;
   terminalAutoStart: boolean;
-  openTerminal: (options?: { terminalId?: string | undefined }) => void;
   onRefreshFiles: () => void;
   onExpandDir: (path: string) => void;
   onSelectFile: (path: string) => void;
