@@ -12,8 +12,10 @@ import { MachineController } from "../controllers/machineController";
 import { ProjectController } from "../controllers/projectController";
 import { SessionController } from "../controllers/sessionController";
 import { WorkspaceController, canDeleteWorkspace } from "../controllers/workspaceController";
-import { emptyMachineNavigationSnapshot, InMemoryMachineNavigationMemory, machineNavigationSnapshotFromState, routeFromMachineNavigationSnapshot, type MachineNavigationSnapshot, type WorkspaceRouteSurface } from "../controllers/machineNavigationMemory";
-import { InMemoryTerminalSelectionMemory } from "../controllers/terminalSelection";
+import { emptyMachineNavigationSnapshot, machineNavigationSnapshotFromState, routeFromMachineNavigationSnapshot, SessionStorageMachineNavigationMemory, type MachineNavigationSnapshot, type WorkspaceRouteSurface } from "../controllers/machineNavigationMemory";
+import { SessionStorageSessionSelectionMemory } from "../controllers/sessionSelection";
+import { SessionStorageTerminalSelectionMemory } from "../controllers/terminalSelection";
+import { SessionStorageWorkspaceSelectionMemory } from "../controllers/workspaceSelection";
 import { KeyboardShortcutDispatcher } from "../keyboardShortcuts";
 import { selectedMachineId } from "../controllers/types";
 import { RealtimeSocket } from "../sessionSocket";
@@ -79,6 +81,7 @@ export class PiWebApp extends LitElement {
     () => this.state,
     (patch) => { this.setState(patch); },
     () => { this.updateUrl(); },
+    new SessionStorageSessionSelectionMemory(),
   );
   private readonly activity = new ActivityController(
     () => this.state,
@@ -94,6 +97,7 @@ export class PiWebApp extends LitElement {
     (patch) => { this.setState(patch); },
     () => { this.updateUrl(); },
     this.sessions,
+    new SessionStorageWorkspaceSelectionMemory(),
   );
   private readonly projects = new ProjectController(
     () => this.state,
@@ -120,8 +124,8 @@ export class PiWebApp extends LitElement {
   private readonly realtime = new RealtimeSocket();
   private readonly machineActivitySockets = new Map<string, RealtimeSocket>();
   private readonly activeTerminalIds = new Set<string>();
-  private readonly machineNavigation = new InMemoryMachineNavigationMemory();
-  private readonly terminalSelection = new InMemoryTerminalSelectionMemory();
+  private readonly machineNavigation = new SessionStorageMachineNavigationMemory();
+  private readonly terminalSelection = new SessionStorageTerminalSelectionMemory();
   private readonly appShell = new AppShellController(this);
   private readonly panelCollapse = new PanelCollapseController(this);
   private readonly mobileNavigation = new MobileNavigationController(
