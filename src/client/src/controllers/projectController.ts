@@ -6,16 +6,18 @@ export class ProjectController {
   constructor(private readonly getState: GetState, private readonly setState: SetState, private readonly workspaces: WorkspaceController) {}
 
   async loadProjects() {
+    const machineId = selectedMachineId(this.getState());
     this.setState({ error: "", isLoadingProjects: true });
     try {
-      const projects = await api.projects(selectedMachineId(this.getState()));
+      const projects = await api.projects(machineId);
+      if (selectedMachineId(this.getState()) !== machineId) return;
       const projectIds = new Set(projects.map((project) => project.id));
       const workspacesByProjectId = Object.fromEntries(Object.entries(this.getState().workspacesByProjectId).filter(([projectId]) => projectIds.has(projectId)));
       this.setState({ projects, workspacesByProjectId });
     } catch (error) {
-      this.setState({ error: String(error) });
+      if (selectedMachineId(this.getState()) === machineId) this.setState({ error: String(error) });
     } finally {
-      this.setState({ isLoadingProjects: false });
+      if (selectedMachineId(this.getState()) === machineId) this.setState({ isLoadingProjects: false });
     }
   }
 

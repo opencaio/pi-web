@@ -26,6 +26,7 @@ export class MachineController {
       selectedMachine: machine,
       projects: [],
       workspaces: [],
+      isLoadingWorkspaces: false,
       selectedProject: undefined,
       selectedWorkspace: undefined,
       selectedSession: undefined,

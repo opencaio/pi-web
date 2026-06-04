@@ -12,6 +12,7 @@ import { MachineController } from "../controllers/machineController";
 import { ProjectController } from "../controllers/projectController";
 import { SessionController } from "../controllers/sessionController";
 import { WorkspaceController, canDeleteWorkspace } from "../controllers/workspaceController";
+import { emptyMachineNavigationSnapshot, InMemoryMachineNavigationMemory, machineNavigationSnapshotFromState, routeFromMachineNavigationSnapshot, type MachineNavigationSnapshot, type WorkspaceRouteSurface } from "../controllers/machineNavigationMemory";
 import { InMemoryTerminalSelectionMemory } from "../controllers/terminalSelection";
 import { KeyboardShortcutDispatcher } from "../keyboardShortcuts";
 import { selectedMachineId } from "../controllers/types";
@@ -61,6 +62,8 @@ const GLOBAL_SHORTCUT_LISTENER_OPTIONS = { capture: true } as const;
 const THEME_AUTO_ON_VALUE = "auto:on";
 const THEME_AUTO_OFF_VALUE = "auto:off";
 const THEME_OPTION_PREFIX = "theme:";
+const FILES_ROUTE_NAMESPACE = queryNamespace("core:workspace.files");
+const GIT_ROUTE_NAMESPACE = queryNamespace("core:workspace.git");
 const TERMINAL_ROUTE_NAMESPACE = queryNamespace("core:workspace.terminal");
 
 @customElement("pi-web-app")
@@ -113,6 +116,7 @@ export class PiWebApp extends LitElement {
   private readonly keyboard = new KeyboardShortcutDispatcher();
   private readonly realtime = new RealtimeSocket();
   private readonly activeTerminalIds = new Set<string>();
+  private readonly machineNavigation = new InMemoryMachineNavigationMemory();
   private readonly terminalSelection = new InMemoryTerminalSelectionMemory();
   private readonly appShell = new AppShellController(this);
   private readonly panelCollapse = new PanelCollapseController(this);
@@ -128,7 +132,9 @@ export class PiWebApp extends LitElement {
   private refreshingWorkspaceDeletionRuns = false;
   private readonly handledWorkspaceDeletionRunIds = new Set<string>();
   private readonly terminalCommandRunRuntimes = new Map<string, TerminalCommandRunsInternalRuntime>();
-  private routeRestoreInProgress = false;
+  private machineNavigationRestoreSeq = 0;
+  private routeRestoreSeq = 0;
+  private routeRestoreDepth = 0;
   private restoringRouteTerminalId: string | undefined;
   private readonly plugins = createPluginRegistry();
   private themePreference: ThemePreference = readStoredThemePreference() ?? DEFAULT_THEME_PREFERENCE;
@@ -162,6 +168,10 @@ export class PiWebApp extends LitElement {
   private readonly onSystemLightThemeChange = () => {
     if (this.themePreference.auto) this.applyPreferredTheme(false);
   };
+  private get routeRestoreInProgress(): boolean {
+    return this.routeRestoreDepth > 0;
+  }
+
   private readonly onKeyDown = (event: KeyboardEvent) => {
     if (this.keyboard.handle(event, this.getActions())) {
       event.preventDefault();
@@ -229,6 +239,7 @@ export class PiWebApp extends LitElement {
     await this.projects.loadProjects();
     if (machineFallbackMessage !== "" && this.state.error === "") this.setState({ error: machineFallbackMessage });
     await this.withChatScrollTransition(() => this.restoreRouteFor(effectiveRoute, false));
+    this.rememberCurrentMachineNavigation();
     await this.refreshWorkspaceDeletionRuns();
   }
 
@@ -291,35 +302,65 @@ export class PiWebApp extends LitElement {
 
   private async restoreRoute(updateUrl: boolean) {
     await this.restoreRouteFor(readRoute(), updateUrl);
+    this.rememberCurrentMachineNavigation();
   }
 
-  private async restoreRouteFor(route: AppRoute, updateUrl: boolean) {
-    await this.restoreRouteMachine(route, updateUrl);
-    const selectedFilePath = route.projectId === undefined ? undefined : readNamespacedString(queryNamespace("core:workspace.files"), "file");
-    const selectedDiffPath = route.projectId === undefined ? undefined : readNamespacedString(queryNamespace("core:workspace.git"), "diff");
-    const selectedTerminalId = route.projectId === undefined ? undefined : readNamespacedString(TERMINAL_ROUTE_NAMESPACE, "terminal");
-    this.routeRestoreInProgress = true;
-    this.restoringRouteTerminalId = selectedTerminalId;
+  private async restoreRouteFor(route: AppRoute, updateUrl: boolean, surface = this.readWorkspaceRouteSurface(route), restoredMainView?: AppState["mainView"]) {
+    const routeSurface = route.projectId === undefined || route.projectId === "" ? emptyWorkspaceRouteSurface() : surface;
+    const restoreSeq = ++this.routeRestoreSeq;
+    this.routeRestoreDepth += 1;
+    this.restoringRouteTerminalId = routeSurface.selectedTerminalId;
     try {
-      this.setState({ workspaceTool: route.tool ?? this.state.workspaceTool, mainView: route.view ?? this.defaultRouteView(), selectedFilePath, selectedDiffPath, selectedTerminalId });
-      if (route.projectId === undefined || route.projectId === "") return;
+      await this.restoreRouteMachine(route, false);
+      if (!this.isCurrentRouteRestore(restoreSeq)) return;
+      this.setState({
+        workspaceTool: route.tool ?? this.state.workspaceTool,
+        mainView: restoredMainView ?? route.view ?? this.defaultRouteView(),
+        selectedFilePath: routeSurface.selectedFilePath,
+        selectedDiffPath: routeSurface.selectedDiffPath,
+        selectedTerminalId: routeSurface.selectedTerminalId,
+      });
+      if (route.projectId === undefined || route.projectId === "") {
+        if (updateUrl) this.updateUrl();
+        return;
+      }
       if (this.routeMatchesCurrentSelection(route)) {
-        if (selectedTerminalId !== undefined) this.rememberSelectedTerminal(selectedTerminalId);
-        await this.refreshRestoredWorkspaceTool(route.tool, selectedFilePath);
+        if (routeSurface.selectedTerminalId !== undefined) this.rememberSelectedTerminal(routeSurface.selectedTerminalId);
+        await this.refreshRestoredWorkspaceTool(route.tool, routeSurface.selectedFilePath);
         this.git.updatePolling();
+        if (updateUrl) this.updateUrl();
         return;
       }
       const project = this.state.projects.find((p) => p.id === route.projectId);
-      if (!project) return;
-      await this.workspaces.selectProject(project, { workspaceId: route.workspaceId, sessionId: route.sessionId, updateUrl });
-      this.setState({ selectedFilePath, selectedDiffPath, selectedTerminalId });
-      if (selectedTerminalId !== undefined) this.rememberSelectedTerminal(selectedTerminalId);
-      await this.refreshRestoredWorkspaceTool(route.tool, selectedFilePath);
+      if (!project) {
+        this.setState({ selectedFilePath: undefined, selectedDiffPath: undefined, selectedTerminalId: undefined });
+        if (updateUrl) this.updateUrl();
+        return;
+      }
+      await this.workspaces.selectProject(project, { workspaceId: route.workspaceId, sessionId: route.sessionId, updateUrl: false });
+      if (!this.isCurrentRouteRestore(restoreSeq)) return;
+      this.setState({ selectedFilePath: routeSurface.selectedFilePath, selectedDiffPath: routeSurface.selectedDiffPath, selectedTerminalId: routeSurface.selectedTerminalId });
+      if (routeSurface.selectedTerminalId !== undefined) this.rememberSelectedTerminal(routeSurface.selectedTerminalId);
+      await this.refreshRestoredWorkspaceTool(route.tool, routeSurface.selectedFilePath);
       this.git.updatePolling();
+      if (updateUrl) this.updateUrl();
     } finally {
-      this.routeRestoreInProgress = false;
-      this.restoringRouteTerminalId = undefined;
+      this.routeRestoreDepth = Math.max(0, this.routeRestoreDepth - 1);
+      if (this.routeRestoreDepth === 0) this.restoringRouteTerminalId = undefined;
     }
+  }
+
+  private isCurrentRouteRestore(restoreSeq: number): boolean {
+    return restoreSeq === this.routeRestoreSeq;
+  }
+
+  private readWorkspaceRouteSurface(route: AppRoute): WorkspaceRouteSurface {
+    if (route.projectId === undefined || route.projectId === "") return emptyWorkspaceRouteSurface();
+    return {
+      selectedFilePath: readNamespacedString(FILES_ROUTE_NAMESPACE, "file"),
+      selectedDiffPath: readNamespacedString(GIT_ROUTE_NAMESPACE, "diff"),
+      selectedTerminalId: readNamespacedString(TERMINAL_ROUTE_NAMESPACE, "terminal"),
+    };
   }
 
   private routeForSelectedMachine(route: AppRoute): AppRoute {
@@ -330,8 +371,8 @@ export class PiWebApp extends LitElement {
 
   private replaceRouteAndClearWorkspaceQuery(route: AppRoute): void {
     writeRoute(route, { replace: true });
-    setNamespacedQueryKey(queryNamespace("core:workspace.files"), "file", undefined, { replace: true });
-    setNamespacedQueryKey(queryNamespace("core:workspace.git"), "diff", undefined, { replace: true });
+    setNamespacedQueryKey(FILES_ROUTE_NAMESPACE, "file", undefined, { replace: true });
+    setNamespacedQueryKey(GIT_ROUTE_NAMESPACE, "diff", undefined, { replace: true });
     setNamespacedQueryKey(TERMINAL_ROUTE_NAMESPACE, "terminal", undefined, { replace: true });
   }
 
@@ -383,6 +424,7 @@ export class PiWebApp extends LitElement {
   }
 
   private updateUrl(options?: { replace?: boolean | undefined }) {
+    this.rememberCurrentMachineNavigation();
     writeRoute({
       machineId: this.state.selectedMachine?.id,
       projectId: this.state.selectedProject?.id,
@@ -391,6 +433,45 @@ export class PiWebApp extends LitElement {
       tool: this.state.workspaceTool,
       view: this.state.mainView === "navigation" ? undefined : this.state.mainView,
     }, options);
+    this.syncWorkspaceRouteSurfaceToUrl();
+  }
+
+  private rememberCurrentMachineNavigation(): void {
+    this.machineNavigation.remember(machineNavigationSnapshotFromState(this.state));
+  }
+
+  private syncWorkspaceRouteSurfaceToUrl(): void {
+    this.writeWorkspaceRouteSurfaceToUrl(machineNavigationSnapshotFromState(this.state).surface);
+  }
+
+  private writeMachineNavigationSnapshotToUrl(snapshot: MachineNavigationSnapshot, options?: { replace?: boolean | undefined }): void {
+    writeRoute(routeFromMachineNavigationSnapshot(snapshot), options);
+    this.writeWorkspaceRouteSurfaceToUrl(snapshot.surface);
+  }
+
+  private writeWorkspaceRouteSurfaceToUrl(surface: WorkspaceRouteSurface): void {
+    setNamespacedQueryKey(FILES_ROUTE_NAMESPACE, "file", surface.selectedFilePath, { replace: true });
+    setNamespacedQueryKey(GIT_ROUTE_NAMESPACE, "diff", surface.selectedDiffPath, { replace: true });
+    setNamespacedQueryKey(TERMINAL_ROUTE_NAMESPACE, "terminal", surface.selectedTerminalId, { replace: true });
+  }
+
+  private async selectMachineWithMemory(machine: Machine): Promise<void> {
+    if (this.state.selectedMachine?.id === machine.id) return;
+    if (!this.routeRestoreInProgress) this.rememberCurrentMachineNavigation();
+    const seq = ++this.machineNavigationRestoreSeq;
+    const snapshot = this.machineNavigation.latest(machine.id) ?? emptyMachineNavigationSnapshot(machine.id);
+    await this.restoreRouteFor(routeFromMachineNavigationSnapshot(snapshot), false, snapshot.surface, snapshot.view);
+    if (seq !== this.machineNavigationRestoreSeq || this.state.selectedMachine?.id !== machine.id) return;
+    if (this.shouldPreserveUnrestoredMachineNavigation(snapshot)) {
+      this.machineNavigation.remember(snapshot);
+      this.writeMachineNavigationSnapshotToUrl(snapshot);
+      return;
+    }
+    this.updateUrl();
+  }
+
+  private shouldPreserveUnrestoredMachineNavigation(snapshot: MachineNavigationSnapshot): boolean {
+    return snapshot.projectId !== undefined && this.state.selectedProject?.id !== snapshot.projectId && this.state.error !== "";
   }
 
   private openWorkspaceTool(tool: QualifiedContributionId) {
@@ -423,18 +504,20 @@ export class PiWebApp extends LitElement {
   }
 
   private async openRuntimeTerminal(machineId: string, workspace: Workspace | undefined, options?: { terminalId?: string | undefined }): Promise<void> {
-    if (selectedMachineId(this.state) !== machineId) {
-      const machine = this.state.machines.find((candidate) => candidate.id === machineId);
-      if (machine === undefined) {
+    if (selectedMachineId(this.state) !== machineId || (workspace !== undefined && (this.state.selectedWorkspace?.id !== workspace.id || this.state.selectedProject?.id !== workspace.projectId))) {
+      if (!this.routeRestoreInProgress) this.rememberCurrentMachineNavigation();
+      await this.restoreRouteFor({
+        machineId,
+        projectId: workspace?.projectId,
+        workspaceId: workspace?.id,
+        sessionId: undefined,
+        tool: "core:workspace.terminal",
+        view: "core:workspace.terminal",
+      }, false, { selectedTerminalId: options?.terminalId }, "core:workspace.terminal");
+      if (selectedMachineId(this.state) !== machineId) {
         this.setState({ error: "Machine not found for terminal command run" });
         return;
       }
-      await this.machines.selectMachine(machine);
-    }
-    if (workspace !== undefined && (this.state.selectedWorkspace?.id !== workspace.id || this.state.selectedProject?.id !== workspace.projectId)) {
-      const project = this.state.projects.find((candidate) => candidate.id === workspace.projectId);
-      if (project !== undefined && this.state.selectedProject?.id !== project.id) await this.workspaces.selectProject(project, { workspaceId: workspace.id });
-      else await this.workspaces.selectWorkspace(workspace);
     }
     this.openTerminal(options);
   }
@@ -442,6 +525,7 @@ export class PiWebApp extends LitElement {
   private selectTerminal(terminalId: string | undefined, options?: { replace?: boolean | undefined }): void {
     this.rememberSelectedTerminal(terminalId);
     this.setState({ selectedTerminalId: terminalId });
+    this.rememberCurrentMachineNavigation();
     this.writeSelectedTerminalToUrl(terminalId, options);
   }
 
@@ -495,7 +579,10 @@ export class PiWebApp extends LitElement {
     this.activeTerminalIds.clear();
     const selectedTerminalId = this.routeRestoreInProgress ? this.restoringRouteTerminalId : next.selectedWorkspace === undefined ? undefined : this.terminalSelection.latestTerminalId(this.terminalWorkspaceKey(next.selectedWorkspace));
     this.setState({ activeTerminalCount: 0, selectedTerminalId });
-    if (!this.routeRestoreInProgress) this.writeSelectedTerminalToUrl(selectedTerminalId, { replace: true });
+    if (!this.routeRestoreInProgress) {
+      this.rememberCurrentMachineNavigation();
+      this.writeSelectedTerminalToUrl(selectedTerminalId, { replace: true });
+    }
     if (next.selectedWorkspace === undefined) return;
     void this.refreshActiveTerminals(next.selectedWorkspace);
     void this.refreshWorkspaceDeletionRuns();
@@ -635,7 +722,7 @@ export class PiWebApp extends LitElement {
         .onToggleMachines=${() => { this.mobileNavigation.toggle("machines"); }}
         .onSelectMachine=${(machine: Machine) => this.withChatScrollTransition(async () => {
           this.mobileNavigation.expand("projects");
-          await this.machines.selectMachine(machine);
+          await this.selectMachineWithMemory(machine);
         })}
         .onRemoveMachine=${(machine: Machine) => { void this.removeMachine(machine); }}
         .projects=${this.state.projects}
@@ -1209,6 +1296,10 @@ function isActive(state: Pick<AppState, "status" | "activity">): boolean {
 
 function isTerminalEvent(event: RealtimeEvent): event is TerminalUiEvent {
   return event.type === "terminal.created" || event.type === "terminal.exited" || event.type === "terminal.closed";
+}
+
+function emptyWorkspaceRouteSurface(): WorkspaceRouteSurface {
+  return {};
 }
 
 function machineScopedKey(machineId: string, value: string): string {
