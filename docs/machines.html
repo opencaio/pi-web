@@ -69,20 +69,20 @@
         <div class="container doc-layout">
           <aside class="toc" aria-label="Machines page contents">
             <strong>On this page</strong>
-            <a href="#what-it-is">What federation is</a>
+            <a href="#what-it-is">What Fleet does</a>
             <a href="#when-to-use">When to use it</a>
-            <a href="#prepare-machines">Prepare machines</a>
+            <a href="#prepare-machines">Set up another runtime</a>
             <a href="#add-machine">Add a machine</a>
-            <a href="#what-is-proxied">What is proxied</a>
-            <a href="#auth-credentials">Auth and credentials</a>
-            <a href="#plugins">Remote plugins</a>
-            <a href="#trust-model">Trust model</a>
-            <a href="#storage-troubleshooting">Storage and troubleshooting</a>
+            <a href="#what-is-proxied">What works remotely</a>
+            <a href="#auth-credentials">Credentials</a>
+            <a href="#plugins">Plugins</a>
+            <a href="#trust-model">Trust boundaries</a>
+            <a href="#storage-troubleshooting">Troubleshooting</a>
           </aside>
 
           <div class="doc-content">
             <section id="what-it-is">
-              <h2>What machine federation is</h2>
+              <h2>What Fleet does</h2>
               <p>
                 A machine is a PI WEB runtime endpoint. The local machine is synthesized automatically. Remote machines
                 are opt-in PI WEB runtimes that you register with a base URL and, optionally, a bearer token.
@@ -94,21 +94,24 @@
               </p>
               <div class="code-card">
                 <div class="copy-row">
-                  <strong>Federated shape</strong>
+                  <strong>Fleet shape</strong>
                   <button class="copy-button" data-copy="#federated-shape">Copy</button>
                 </div>
                 <pre id="federated-shape"><code>Browser
   ↓
 PI WEB gateway you opened
-  ↓ gateway proxy
-Remote PI WEB runtime
-  ↓
-Remote projects, workspaces, sessions, terminals, plugins</code></pre>
+  ├─ [ Local runtime ]
+  │
+  ├─ [ Remote PI WEB runtime A ]
+  │     ↓ selected machine
+  │     projects, workspaces, sessions, terminals, plugins
+  │
+  └─ [ Remote PI WEB runtime B ]</code></pre>
               </div>
             </section>
 
             <section id="when-to-use">
-              <h2>When to use federation</h2>
+              <h2>When to use it</h2>
               <p>
                 Federation is useful when you have more than one place where agents should work, but you want one stable
                 browser entrypoint.
@@ -133,7 +136,7 @@ Remote projects, workspaces, sessions, terminals, plugins</code></pre>
             </section>
 
             <section id="prepare-machines">
-              <h2>Prepare the target machines</h2>
+              <h2>Set up another runtime</h2>
               <p>
                 Install and run PI WEB on every machine you want to register. The remote URL must be reachable from the
                 gateway server, not just from your browser.
@@ -159,7 +162,7 @@ Remote projects, workspaces, sessions, terminals, plugins</code></pre>
             </section>
 
             <section id="add-machine">
-              <h2>Add a remote machine</h2>
+              <h2>Add a machine</h2>
               <ol>
                 <li>Open the PI WEB instance you want to use as the gateway.</li>
                 <li>Open <strong>Actions → Add Machine</strong>.</li>
@@ -178,7 +181,7 @@ Remote projects, workspaces, sessions, terminals, plugins</code></pre>
             </section>
 
             <section id="what-is-proxied">
-              <h2>What is proxied</h2>
+              <h2>What works remotely</h2>
               <p>
                 After you select a machine, the rest of the app works in that machine's scope. The gateway routes the
                 selected-machine work to the target PI WEB runtime.
@@ -194,7 +197,7 @@ Remote projects, workspaces, sessions, terminals, plugins</code></pre>
             </section>
 
             <section id="auth-credentials">
-              <h2>Auth and credentials stay on the target machine</h2>
+              <h2>Credentials stay on the target machine</h2>
               <p>
                 Model-provider credentials, Pi configuration, OAuth state, repositories, and active session runtimes stay
                 on the selected target machine. The gateway does not copy them into its own Pi configuration.
@@ -211,7 +214,7 @@ Remote projects, workspaces, sessions, terminals, plugins</code></pre>
             </section>
 
             <section id="plugins">
-              <h2>Remote plugins are machine-scoped</h2>
+              <h2>Plugins follow the selected machine</h2>
               <p>
                 When you select a remote machine, PI WEB tries to load that machine's discovered plugins through the
                 gateway. Remote plugin actions, workspace panels, and workspace labels only appear while that machine is
@@ -225,7 +228,7 @@ Remote projects, workspaces, sessions, terminals, plugins</code></pre>
             </section>
 
             <section id="trust-model">
-              <h2>Trust model</h2>
+              <h2>Trust boundaries</h2>
               <p>
                 Machine federation is for trusted users, trusted PI WEB servers, and trusted network paths. Adding a
                 machine gives the gateway permission to contact that URL and forward user-initiated PI WEB traffic to it.
@@ -238,7 +241,7 @@ Remote projects, workspaces, sessions, terminals, plugins</code></pre>
             </section>
 
             <section id="storage-troubleshooting">
-              <h2>Storage and troubleshooting</h2>
+              <h2>Troubleshooting</h2>
               <p>
                 Remote machine records are stored on the gateway in <code>~/.pi-web/machines.json</code>. If
                 <code>PI_WEB_DATA_DIR</code> is set, they live under <code>$PI_WEB_DATA_DIR/machines.json</code>.
