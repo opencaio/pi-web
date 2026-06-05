@@ -41,18 +41,6 @@ export function toggleCollapsedNavigationSection(collapsedSections: readonly Nav
   return orderedNavigationSections(collapsed);
 }
 
-export function collapsedNavigationSectionsAfterSelection(collapsedSections: readonly NavigationSection[], selectedSection: NavigationSection): NavigationSection[] {
-  const selectedIndex = NAVIGATION_SECTION_ORDER.indexOf(selectedSection);
-  const collapsed = new Set(collapsedSections);
-  const collapseThroughIndex = selectedSection === "sessions" ? selectedIndex - 1 : selectedIndex;
-  for (const section of NAVIGATION_SECTION_ORDER.slice(0, collapseThroughIndex + 1)) collapsed.add(section);
-
-  const next = nextNavigationSection(selectedSection);
-  if (next !== undefined) collapsed.delete(next);
-  if (selectedSection === "sessions") collapsed.delete("sessions");
-  return orderedNavigationSections(collapsed);
-}
-
 export function nextNavigationSection(section: NavigationSection): NavigationSection | undefined {
   return NAVIGATION_SECTION_ORDER[NAVIGATION_SECTION_ORDER.indexOf(section) + 1];
 }
@@ -103,12 +91,9 @@ export class NavigationSectionsController implements ReactiveController {
   }
 
   advanceAfterSelection(section: NavigationSection): void {
-    if (this.isMobileLayout()) {
-      const next = nextNavigationSection(section);
-      if (next !== undefined) this.expand(next);
-      return;
-    }
-    this.setCollapsedSections(collapsedNavigationSectionsAfterSelection(this.collapsedSections, section));
+    if (!this.isMobileLayout()) return;
+    const next = nextNavigationSection(section);
+    if (next !== undefined) this.expand(next);
   }
 
   open(section: NavigationSection, openNavigationView: () => void): void {

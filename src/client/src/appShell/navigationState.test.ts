@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collapsedNavigationSectionsAfterSelection, defaultNavigationSection, expandedNavigationSection, isNavigationSectionCollapsed, toggleCollapsedNavigationSection, toggleNavigationSection } from "./navigationState";
+import { defaultNavigationSection, expandedNavigationSection, isNavigationSectionCollapsed, toggleCollapsedNavigationSection, toggleNavigationSection } from "./navigationState";
 
 describe("navigationState", () => {
   it("defaults to the first incomplete selection section", () => {
@@ -51,10 +51,4 @@ describe("navigationState", () => {
     expect(toggleCollapsedNavigationSection(["sessions"], "machines")).toEqual(["machines", "sessions"]);
   });
 
-  it("collapses completed desktop sections and expands the next section after selection", () => {
-    expect(collapsedNavigationSectionsAfterSelection([], "machines")).toEqual(["machines"]);
-    expect(collapsedNavigationSectionsAfterSelection(["workspaces"], "projects")).toEqual(["machines", "projects"]);
-    expect(collapsedNavigationSectionsAfterSelection([], "workspaces")).toEqual(["machines", "projects", "workspaces"]);
-    expect(collapsedNavigationSectionsAfterSelection(["sessions"], "sessions")).toEqual(["machines", "projects", "workspaces"]);
-  });
 });

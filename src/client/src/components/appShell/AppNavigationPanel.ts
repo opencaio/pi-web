@@ -3,6 +3,7 @@ import { customElement, property } from "lit/decorators.js";
 import type { Machine, MachineHealth, Project, SessionActivity, SessionInfo, SessionStatus, Workspace, WorkspaceActivity } from "../../api";
 import type { WorkspaceLabelItem } from "../../plugins/types";
 import "../MachineList";
+import "../MachineSwitcher";
 import "../ProjectList";
 import "../WorkspaceList";
 import "../SessionList";
@@ -57,12 +58,22 @@ export class AppNavigationPanel extends LitElement {
     return html`
       <header>
         <strong>PI WEB</strong>
+        ${shouldShowMachinesSection(this.machines) ? html`
+          <machine-switcher
+            .machines=${this.machines}
+            .selected=${this.selectedMachine}
+            .statuses=${this.machineStatuses}
+            .activities=${this.machineActivities}
+            .onSelect=${(machine: Machine) => this.onSelectMachine?.(machine)}
+            .onRemove=${(machine: Machine) => this.onRemoveMachine?.(machine)}
+          ></machine-switcher>
+        ` : null}
         <div class="header-actions">
           ${this.refreshControl}
           <button title="Show Actions" aria-label="Show Actions" @click=${() => { this.onShowActions?.(); }}>Actions</button>
         </div>
       </header>
-      ${shouldShowMachinesSection(this.machines) ? html`
+      ${this.compact && shouldShowMachinesSection(this.machines) ? html`
         <machine-list
           .machines=${this.machines}
           .selected=${this.selectedMachine}
@@ -123,8 +134,10 @@ export class AppNavigationPanel extends LitElement {
     :host { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
     :host([compact]) { flex: 1 1 auto; }
     header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid var(--pi-border); }
+    header strong { flex: 0 0 auto; }
+    machine-switcher { flex: 1 1 auto; min-width: 0; }
     :host([compact]) header { display: none; }
-    .header-actions { display: flex; align-items: center; gap: 8px; }
+    .header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
     machine-list, project-list, workspace-list { flex: 0 0 auto; max-height: 26%; min-height: 0; overflow: hidden; border-bottom: 1px solid var(--pi-border-muted); }
     session-list { flex: 1 1 auto; min-height: 0; overflow: hidden; }
     machine-list[collapsed],
