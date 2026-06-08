@@ -29,6 +29,7 @@ import { queryNamespace, readNamespacedString, setNamespacedQueryKey } from "../
 import { AppShellController } from "../appShell/appShellController";
 import { NavigationSectionsController, type NavigationSection } from "../appShell/navigationState";
 import { PanelCollapseController, mainViewClass } from "../appShell/panelCollapseController";
+import { PanelResizeController, type PanelResizeConstraints, type ResizablePanelSide } from "../appShell/panelResizeController";
 import { readRoute, writeRoute, type AppRoute } from "../route";
 import { readSettingsSection, writeSettingsSection, type SettingsSection } from "../settingsRoute";
 import { applyActiveShortcutPreferences } from "../shortcutPreferences";
@@ -69,6 +70,9 @@ const THEME_OPTION_PREFIX = "theme:";
 const FILES_ROUTE_NAMESPACE = queryNamespace("core:workspace.files");
 const GIT_ROUTE_NAMESPACE = queryNamespace("core:workspace.git");
 const TERMINAL_ROUTE_NAMESPACE = queryNamespace("core:workspace.terminal");
+const MIN_RESIZABLE_CHAT_WIDTH_PX = 320;
+const PANEL_EDGE_COLUMNS_WIDTH_PX = 2;
+const DESKTOP_SIDE_BY_SIDE_MEDIA_QUERY = "(min-width: 1181px)";
 
 @customElement("pi-web-app")
 export class PiWebApp extends LitElement {
@@ -76,6 +80,8 @@ export class PiWebApp extends LitElement {
   @query("chat-view") private chatView?: ChatView;
   @query("prompt-editor") private promptEditor?: PromptEditor;
   @query("app-navigation-panel") private navigationPanel?: AppNavigationPanel;
+  @query("#navigation-panel") private navigationPanelFrame?: HTMLElement;
+  @query("#workspace-panel") private workspacePanelFrame?: HTMLElement;
 
   private readonly sessions = new SessionController(
     () => this.state,
@@ -128,6 +134,7 @@ export class PiWebApp extends LitElement {
   private readonly terminalSelection = new SessionStorageTerminalSelectionMemory();
   private readonly appShell = new AppShellController(this);
   private readonly panelCollapse = new PanelCollapseController(this);
+  private readonly panelResize = new PanelResizeController(this);
   private readonly navigationSections = new NavigationSectionsController(
     this,
     () => this.state,
@@ -742,29 +749,102 @@ export class PiWebApp extends LitElement {
   }
 
   private renderNavigationPanelEdgeControl() {
+    const constraints = this.resizablePanelConstraints("navigation");
     return html`
       <app-panel-edge-control
         side="navigation"
         controls="navigation-panel"
+        resizeLabel="Resize navigation panel"
         expandLabel="Expand navigation panel"
         collapseLabel="Collapse navigation panel"
         .collapsed=${this.panelCollapse.navigationPanelCollapsed}
+        .resizable=${!this.appShell.isMobileNavigationLayout}
+        .panelWidth=${this.panelResize.panelWidth("navigation")}
+        .minWidth=${constraints.minWidth}
+        .maxWidth=${constraints.maxWidth}
         .onToggle=${() => { this.panelCollapse.toggleNavigationPanel(); }}
+        .onResizeStart=${() => this.startPanelResize("navigation")}
+        .onResize=${(width: number) => { this.panelResize.resizePanel("navigation", width, { persist: false }); }}
+        .onResizeEnd=${() => { this.panelResize.persistPanelSizes(); }}
+        .onReset=${() => { this.resetResizablePanel("navigation"); }}
       ></app-panel-edge-control>
     `;
   }
 
   private renderWorkspacePanelEdgeControl() {
+    const constraints = this.resizablePanelConstraints("workspace");
     return html`
       <app-panel-edge-control
         side="workspace"
         controls="workspace-panel"
+        resizeLabel="Resize workspace panel"
         expandLabel="Expand workspace panel"
         collapseLabel="Collapse workspace panel"
         .collapsed=${this.panelCollapse.workspacePanelCollapsed}
+        .resizable=${!this.appShell.isMobileNavigationLayout}
+        .panelWidth=${this.panelResize.panelWidth("workspace")}
+        .minWidth=${constraints.minWidth}
+        .maxWidth=${constraints.maxWidth}
         .onToggle=${() => { this.panelCollapse.toggleWorkspacePanel(); }}
+        .onResizeStart=${() => this.startPanelResize("workspace")}
+        .onResize=${(width: number) => { this.panelResize.resizePanel("workspace", width, { persist: false }); }}
+        .onResizeEnd=${() => { this.panelResize.persistPanelSizes(); }}
+        .onReset=${() => { this.resetResizablePanel("workspace"); }}
       ></app-panel-edge-control>
     `;
+  }
+
+  private startPanelResize(side: ResizablePanelSide): number {
+    if (side === "navigation") this.panelCollapse.expandNavigationPanel();
+    else this.panelCollapse.expandWorkspacePanel();
+    return this.measuredPanelWidth(side) ?? this.panelResize.panelWidth(side);
+  }
+
+  private resizablePanelConstraints(side: ResizablePanelSide): PanelResizeConstraints {
+    const constraints = this.panelResize.constraints(side);
+    return {
+      ...constraints,
+      maxWidth: this.resizablePanelMaxWidth(side, constraints),
+    };
+  }
+
+  private resizablePanelMaxWidth(side: ResizablePanelSide, constraints: PanelResizeConstraints): number {
+    const shellWidth = this.getBoundingClientRect().width || (typeof window === "undefined" ? 0 : window.innerWidth);
+    if (shellWidth <= 0) return constraints.maxWidth;
+
+    const otherPanelWidth = this.oppositeResizablePanelWidth(side);
+    const maxWidth = Math.floor(shellWidth - otherPanelWidth - PANEL_EDGE_COLUMNS_WIDTH_PX - MIN_RESIZABLE_CHAT_WIDTH_PX);
+    return Math.max(constraints.minWidth, Math.min(constraints.maxWidth, maxWidth));
+  }
+
+  private oppositeResizablePanelWidth(side: ResizablePanelSide): number {
+    const otherSide: ResizablePanelSide = side === "navigation" ? "workspace" : "navigation";
+    if (this.isResizablePanelCollapsedOrStacked(otherSide)) return 0;
+    return this.measuredPanelWidth(otherSide) ?? this.panelResize.panelWidth(otherSide);
+  }
+
+  private isResizablePanelCollapsedOrStacked(side: ResizablePanelSide): boolean {
+    if (side === "navigation") return this.panelCollapse.navigationPanelCollapsed;
+    return this.panelCollapse.workspacePanelCollapsed || !this.isDesktopSideBySideLayout();
+  }
+
+  private isDesktopSideBySideLayout(): boolean {
+    if (typeof window === "undefined" || !("matchMedia" in window)) return true;
+    return window.matchMedia(DESKTOP_SIDE_BY_SIDE_MEDIA_QUERY).matches;
+  }
+
+  private measuredPanelWidth(side: ResizablePanelSide): number | undefined {
+    const element = side === "navigation" ? this.navigationPanelFrame : this.workspacePanelFrame;
+    const width = element?.getBoundingClientRect().width;
+    return width === undefined || width <= 0 ? undefined : width;
+  }
+
+  private resetResizablePanel(side: ResizablePanelSide): void {
+    this.panelResize.resetPanel(side);
+  }
+
+  private resetResizablePanels(): void {
+    this.panelResize.resetPanels();
   }
 
   private renderNavigationPanel() {
@@ -999,7 +1079,33 @@ export class PiWebApp extends LitElement {
   }
 
   private getDefaultActions(): AppAction[] {
-    return [...this.plugins.getActions(this.createPluginRuntimeContext()), ...this.navigationFocusActions()];
+    return [...this.plugins.getActions(this.createPluginRuntimeContext()), ...this.navigationFocusActions(), ...this.panelLayoutActions()];
+  }
+
+  private panelLayoutActions(): AppAction[] {
+    return [
+      {
+        id: "app.layout.reset-navigation-panel-size",
+        title: "Reset Navigation Panel Size",
+        description: "Restore the navigation panel to its default width",
+        group: "View",
+        run: () => { this.resetResizablePanel("navigation"); },
+      },
+      {
+        id: "app.layout.reset-workspace-panel-size",
+        title: "Reset Workspace Panel Size",
+        description: "Restore the workspace panel to its default width",
+        group: "View",
+        run: () => { this.resetResizablePanel("workspace"); },
+      },
+      {
+        id: "app.layout.reset-panel-sizes",
+        title: "Reset Panel Sizes",
+        description: "Restore all side panels to their default widths",
+        group: "View",
+        run: () => { this.resetResizablePanels(); },
+      },
+    ];
   }
 
   private navigationFocusActions(): AppAction[] {
@@ -1438,7 +1544,7 @@ export class PiWebApp extends LitElement {
   override render() {
     const state = this.state;
     return html`
-      <div class=${this.panelCollapse.shellClass(state.mainView)}>
+      <div class=${this.panelCollapse.shellClass(state.mainView)} style=${this.panelResize.shellStyle({ navigation: this.resizablePanelConstraints("navigation"), workspace: this.resizablePanelConstraints("workspace") })}>
         <aside id="navigation-panel">${this.appShell.isMobileNavigationLayout ? null : this.renderNavigationPanel()}</aside>
         ${this.renderNavigationPanelEdgeControl()}
         <main class=${mainViewClass(state.mainView)}>
