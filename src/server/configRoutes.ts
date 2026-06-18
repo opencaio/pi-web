@@ -59,6 +59,7 @@ function parseConfigRequest(value: unknown): PiWebConfig {
   const shortcuts = value["shortcuts"];
   const plugins = value["plugins"];
   const spawnSessions = value["spawnSessions"];
+  const subsessions = value["subsessions"];
   if (host !== undefined) {
     if (typeof host !== "string") throw new Error("PI WEB config host must be a string");
     config.host = host;
@@ -73,6 +74,10 @@ function parseConfigRequest(value: unknown): PiWebConfig {
   if (spawnSessions !== undefined) {
     if (typeof spawnSessions !== "boolean") throw new Error("PI WEB config spawnSessions must be a boolean");
     config.spawnSessions = spawnSessions;
+  }
+  if (subsessions !== undefined) {
+    if (typeof subsessions !== "boolean") throw new Error("PI WEB config subsessions must be a boolean");
+    config.subsessions = subsessions;
   }
   return config;
 }
