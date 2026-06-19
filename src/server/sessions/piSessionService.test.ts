@@ -960,12 +960,13 @@ describe("PiSessionService", () => {
       await service.dispose();
     });
 
-    it("read_subsession refuses sessions that are not the caller's children", async () => {
+    it("check_subsession and read_subsession refuse sessions that are not the caller's children", async () => {
       const { service } = subsessionService({ allowed: true, cwd: "/workspace-feature" });
       await service.start("/workspace");
       await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go", cwd: "/workspace-feature" });
 
-      await expect(service.readSubsession("someone-else", "child-1")).rejects.toThrow("not one of your subsessions");
+      await expect(service.checkSubsession("someone-else", "child-1")).rejects.toThrow("not one of your subsessions");
+      await expect(service.readSubsession("someone-else", "child-1", {})).rejects.toThrow("not one of your subsessions");
       await service.dispose();
     });
 

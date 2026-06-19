@@ -32,7 +32,8 @@ import type { SavedPromptAttachment } from "../../shared/apiTypes.js";
 import { cwdPathsEqual } from "../workingDirectory.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
 import { createSpawnSessionToolDefinition, type SpawnSessionInvocation, type SpawnSessionResult } from "./spawnSessionTool.js";
-import { createSubsessionToolDefinitions, type SpawnSubsessionInvocation, type SpawnSubsessionResult, type SubsessionReadResult, type SubsessionStatus, type SubsessionSummary, type SubsessionToolDeps } from "./spawnSubsessionTool.js";
+import { createSubsessionToolDefinitions, type SpawnSubsessionInvocation, type SpawnSubsessionResult, type SubsessionCheckResult, type SubsessionReadQuery, type SubsessionReadResult, type SubsessionStatus, type SubsessionSummary, type SubsessionToolDeps } from "./spawnSubsessionTool.js";
+import { buildTranscriptView } from "./subsessionTranscript.js";
 import type { SpawnTargetDecision, SpawnTargetResolver } from "./spawnTargetResolver.js";
 
 /**
@@ -267,7 +268,8 @@ export interface PiSessionServiceDependencies {
   spawnTargets?: SpawnTargetResolver;
   /**
    * Beta: when true (and `spawnTargets` is provided), the tracked-subsession
-   * tools (`spawn_subsession`, `list_subsessions`, `read_subsession`) are
+   * tools (`spawn_subsession`, `list_subsessions`, `check_subsession`,
+   * `read_subsession`) are
    * registered on every session. Off by default so the capability can ship in
    * main without being exposed in releases.
    */
@@ -321,7 +323,8 @@ export class PiSessionService {
       !subsessionsActive ? undefined : {
         spawn: (input) => this.spawnSubsession(input),
         list: (parentSessionId) => this.listSubsessions(parentSessionId),
-        read: (parentSessionId, sessionId) => this.readSubsession(parentSessionId, sessionId),
+        check: (parentSessionId, sessionId) => this.checkSubsession(parentSessionId, sessionId),
+        read: (parentSessionId, sessionId, query) => this.readSubsession(parentSessionId, sessionId, query),
       },
     );
     this.createAgentRuntime = deps.createAgentRuntime ?? defaultCreateAgentRuntime;
@@ -453,11 +456,8 @@ export class PiSessionService {
   }
 
   /** Status and final result of a subsession, scoped to the caller's children. */
-  async readSubsession(parentSessionId: string, sessionId: string): Promise<SubsessionReadResult> {
-    if (this.subsessionParents.get(sessionId) !== parentSessionId) {
-      throw new Error(`Session ${sessionId} is not one of your subsessions`);
-    }
-    const session = await this.getOrOpen(sessionId);
+  async checkSubsession(parentSessionId: string, sessionId: string): Promise<SubsessionCheckResult> {
+    const session = await this.openSubsession(parentSessionId, sessionId);
     const messages = historyMessages(session);
     return {
       sessionId,
@@ -466,6 +466,26 @@ export class PiSessionService {
       finalText: finalAssistantText(messages),
       messageCount: messages.length,
     };
+  }
+
+  /** Filtered, paginated transcript of a subsession, scoped to the caller's children. */
+  async readSubsession(parentSessionId: string, sessionId: string, query: SubsessionReadQuery): Promise<SubsessionReadResult> {
+    const session = await this.openSubsession(parentSessionId, sessionId);
+    const view = buildTranscriptView(historyMessages(session), query);
+    return {
+      sessionId,
+      cwd: session.sessionManager.getCwd(),
+      status: await this.subsessionStatus(session),
+      ...view,
+    };
+  }
+
+  /** Open a session after verifying it is one of the caller's tracked children. */
+  private async openSubsession(parentSessionId: string, sessionId: string): Promise<PiAgentSession> {
+    if (this.subsessionParents.get(sessionId) !== parentSessionId) {
+      throw new Error(`Session ${sessionId} is not one of your subsessions`);
+    }
+    return this.getOrOpen(sessionId);
   }
 
   private registerSubsession(parentSessionId: string, childSessionId: string): void {
@@ -512,7 +532,7 @@ export class PiSessionService {
     const status: SubsessionStatus = this.activities.get(childId)?.phase === "error" ? "error" : "idle";
     const finalText = finalAssistantText(historyMessages(session));
     const preview = finalText === "" ? "(no output)" : truncateForNotification(finalText);
-    const text = `Subsession ${childId} stopped working (status: ${status}). Latest output:\n\n${preview}\n\nUse read_subsession with sessionId "${childId}" for the full result.`;
+    const text = `Subsession ${childId} stopped working (status: ${status}). Latest output:\n\n${preview}\n\nUse check_subsession with sessionId "${childId}" for its status and latest output, or read_subsession to look through its full transcript.`;
     void this.notifyParentOfSubsession(parentId, childId, text);
   }
 

@@ -14,7 +14,8 @@ function tools(deps: Partial<SubsessionToolDeps>) {
   const full: SubsessionToolDeps = {
     spawn: deps.spawn ?? vi.fn(() => Promise.resolve({ sessionId: "x", cwd: "/repos/a" })),
     list: deps.list ?? vi.fn(() => Promise.resolve([])),
-    read: deps.read ?? vi.fn(() => Promise.resolve({ sessionId: "x", cwd: "/repos/a", status: "idle" as const, finalText: "", messageCount: 0 })),
+    check: deps.check ?? vi.fn(() => Promise.resolve({ sessionId: "x", cwd: "/repos/a", status: "idle" as const, finalText: "", messageCount: 0 })),
+    read: deps.read ?? vi.fn(() => Promise.resolve({ sessionId: "x", cwd: "/repos/a", status: "idle" as const, entries: [], total: 0, matched: 0, start: 0, hasMore: false })),
   };
   const definitions = createSubsessionToolDefinitions("/repos/a", full);
   const find = (name: string) => {
@@ -22,7 +23,7 @@ function tools(deps: Partial<SubsessionToolDeps>) {
     if (tool === undefined) throw new Error(`missing tool ${name}`);
     return tool;
   };
-  return { spawn: find("spawn_subsession"), list: find("list_subsessions"), read: find("read_subsession") };
+  return { spawn: find("spawn_subsession"), list: find("list_subsessions"), check: find("check_subsession"), read: find("read_subsession") };
 }
 
 function firstText(content: readonly (TextContent | ImageContent)[]): string {
@@ -71,22 +72,78 @@ describe("createSubsessionToolDefinitions", () => {
     expect(result.content[0]).toMatchObject({ type: "text", text: "You have not spawned any subsessions." });
   });
 
-  it("read_subsession scopes by parent and returns the final result", async () => {
-    const read = vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/repos/a", status: "idle" as const, finalText: "all done", messageCount: 4 }));
-    const { read: readTool } = tools({ read });
+  it("check_subsession scopes by parent and returns the final result", async () => {
+    const check = vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/repos/a", status: "idle" as const, finalText: "all done", messageCount: 4 }));
+    const { check: checkTool } = tools({ check });
 
-    const result = await readTool.execute("call-4", { sessionId: "child-1" }, undefined, undefined, ctxFor("parent-1", undefined));
+    const result = await checkTool.execute("call-4", { sessionId: "child-1" }, undefined, undefined, ctxFor("parent-1", undefined));
 
-    expect(read).toHaveBeenCalledWith("parent-1", "child-1");
+    expect(check).toHaveBeenCalledWith("parent-1", "child-1");
     expect(result.details).toMatchObject({ sessionId: "child-1", status: "idle", finalText: "all done" });
     expect(firstText(result.content)).toContain("all done");
+  });
+
+  it("check_subsession propagates scope errors so the agent loop reports them", async () => {
+    const check = vi.fn(() => Promise.reject(new Error("Session child-9 is not one of your subsessions")));
+    const { check: checkTool } = tools({ check });
+
+    await expect(checkTool.execute("call-5", { sessionId: "child-9" }, undefined, undefined, ctxFor("parent-1", undefined)))
+      .rejects.toThrow("not one of your subsessions");
+  });
+
+  it("read_subsession forwards filter params and renders the transcript", async () => {
+    const read = vi.fn(() => Promise.resolve({
+      sessionId: "child-1", cwd: "/repos/a", status: "idle" as const,
+      entries: [{ index: 2, role: "assistant" as const, parts: [{ kind: "text" as const, text: "the answer" }] }],
+      total: 5, matched: 1, start: 2, hasMore: false,
+    }));
+    const { read: readTool } = tools({ read });
+
+    const result = await readTool.execute("call-6", { sessionId: "child-1", roles: ["assistant"], maxChars: 200 }, undefined, undefined, ctxFor("parent-1", undefined));
+
+    expect(read).toHaveBeenCalledWith("parent-1", "child-1", { roles: ["assistant"], maxChars: 200 });
+    expect(result.details).toMatchObject({ sessionId: "child-1", matched: 1 });
+    expect(firstText(result.content)).toContain("the answer");
+  });
+
+  it("read_subsession renders raw tool-call args and the truncation marker in the model-facing text", async () => {
+    const read = vi.fn(() => Promise.resolve({
+      sessionId: "child-1", cwd: "/repos/a", status: "idle" as const,
+      entries: [{
+        index: 1, role: "assistant" as const, parts: [
+          { kind: "tool_call" as const, toolName: "bash", summary: "ls", args: { command: "ls -la" } },
+          { kind: "text" as const, text: "clipped", truncated: { shown: 7, full: 50 } },
+        ],
+      }],
+      total: 3, matched: 1, start: 1, hasMore: false,
+    }));
+    const { read: readTool } = tools({ read });
+
+    const result = await readTool.execute("call-7", { sessionId: "child-1", includeToolArgs: true }, undefined, undefined, ctxFor("parent-1", undefined));
+    const text = firstText(result.content);
+    expect(text).toContain("command"); // raw args surfaced in text, not only details
+    expect(text).toContain("ls -la");
+    expect(text).toContain("[+43 chars truncated"); // 50 - 7
+  });
+
+  it("read_subsession distinguishes an empty page-window from a zero-match result", async () => {
+    const read = vi.fn(() => Promise.resolve({
+      sessionId: "child-1", cwd: "/repos/a", status: "idle" as const,
+      entries: [], total: 5, matched: 4, start: 0, hasMore: false,
+    }));
+    const { read: readTool } = tools({ read });
+
+    const result = await readTool.execute("call-8", { sessionId: "child-1", before: 0 }, undefined, undefined, ctxFor("parent-1", undefined));
+    const text = firstText(result.content);
+    expect(text).toContain("4 matched"); // not "nothing matched"
+    expect(text).not.toContain("nothing matched");
   });
 
   it("read_subsession propagates scope errors so the agent loop reports them", async () => {
     const read = vi.fn(() => Promise.reject(new Error("Session child-9 is not one of your subsessions")));
     const { read: readTool } = tools({ read });
 
-    await expect(readTool.execute("call-5", { sessionId: "child-9" }, undefined, undefined, ctxFor("parent-1", undefined)))
+    await expect(readTool.execute("call-9", { sessionId: "child-9" }, undefined, undefined, ctxFor("parent-1", undefined)))
       .rejects.toThrow("not one of your subsessions");
   });
 });

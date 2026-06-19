@@ -67,7 +67,7 @@ export class SettingsSessiondPanel extends LitElement {
             >
             <span>Enable the <code>spawn_subsession</code> tools</span>
           </label>
-          <small>Beta: agents can start child sessions they stay attached to (<code>spawn_subsession</code>, <code>list_subsessions</code>, <code>read_subsession</code>) and are notified when a child finishes. Requires "Allow agents to start sessions". Off by default.</small>
+          <small>Beta: agents can start child sessions they stay attached to (<code>spawn_subsession</code>, <code>list_subsessions</code>, <code>check_subsession</code>, <code>read_subsession</code>) and are notified when a child finishes. Requires "Allow agents to start sessions". Off by default.</small>
         </div>
         <section class="effective-card" aria-label="Effective configuration summary">
           <h3>Effective after environment overrides</h3>
