@@ -1,4 +1,4 @@
-export type FederatedHttpMethod = "GET" | "POST" | "DELETE";
+export type FederatedHttpMethod = "GET" | "POST" | "PUT" | "DELETE";
 
 export interface FederatedHttpRouteSpec {
   method: FederatedHttpMethod;
@@ -15,7 +15,11 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "DELETE", path: "/projects/:projectId/workspaces/:workspaceId" },
   { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/tree" },
   { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/file" },
+  { method: "PUT", path: "/projects/:projectId/workspaces/:workspaceId/file" },
+  { method: "DELETE", path: "/projects/:projectId/workspaces/:workspaceId/file" },
+  { method: "POST", path: "/projects/:projectId/workspaces/:workspaceId/file/move" },
   { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/file/preview" },
+  { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/files" },
   { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/git/status" },
   { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/git/diff" },
   { method: "GET", path: "/projects/:projectId/workspaces/:workspaceId/terminals" },
@@ -51,6 +55,7 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "POST", path: "/sessions/:sessionId/archive-tree" },
   { method: "POST", path: "/sessions/:sessionId/restore" },
   { method: "DELETE", path: "/sessions/:sessionId" },
+  { method: "POST", path: "/sessions/:sessionId/reload" },
   { method: "POST", path: "/sessions/:sessionId/detach-parent" },
   { method: "GET", path: "/auth/providers" },
   { method: "POST", path: "/auth/api-key" },

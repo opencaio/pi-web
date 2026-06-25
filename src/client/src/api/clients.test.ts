@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import type { TerminalCommandRun, Workspace } from "../../../shared/apiTypes";
-import { machinesApi, piWebApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
+import { filesApi, machinesApi, piWebApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
 
 const workspace: Workspace = {
   id: "w/1",
@@ -84,6 +84,26 @@ describe("session API compatibility", () => {
   });
 });
 
+describe("machine-scoped file suggestion API", () => {
+  it("uses the workspace-scoped route when the caller has enabled workspace-scoped suggestions", async () => {
+    const fetchMock = stubJsonFetch([]);
+
+    await filesApi.files("/repo", "README", { projectId: "p 1", workspaceId: "w/1", scope: "tracked", machineId: "remote a", workspaceScoped: true });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchCall(fetchMock, 0)[0]).toBe("/api/machines/remote%20a/projects/p%201/workspaces/w%2F1/files?q=README&scope=tracked");
+  });
+
+  it("falls back to the legacy cwd route when workspace-scoped suggestions are not enabled", async () => {
+    const fetchMock = stubJsonFetch([]);
+
+    await filesApi.files("/repo", "README", { projectId: "p 1", workspaceId: "w/1", scope: "tracked", machineId: "remote a" });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchCall(fetchMock, 0)[0]).toBe("/api/machines/remote%20a/files?q=README&scope=tracked&cwd=%2Frepo");
+  });
+});
+
 describe("machine-scoped terminal command-run API", () => {
   it("deletes workspaces through the selected machine scope", async () => {
     const fetchMock = stubJsonFetch(commandRun);
@@ -144,6 +164,69 @@ describe("machine-scoped terminal command-run API", () => {
     await expect(terminalsApi.getCommandRun("missing", "remote-a")).resolves.toBeUndefined();
 
     expect(fetchCall(fetchMock, 0)[0]).toBe("/api/machines/remote-a/terminal-command-runs/missing");
+  });
+});
+
+describe("workspace file write API", () => {
+  it("sends text content with Content-Type text/plain", async () => {
+    const fetchMock = stubJsonFetch({ path: "hello.txt", size: 11, modifiedAt: "2026-06-10T00:00:00.000Z", created: true });
+
+    await workspacesApi.writeWorkspaceFile("p 1", "w/1", "hello.txt", "hello world");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchCall(fetchMock, 0);
+    expect(url).toBe("/api/machines/local/projects/p%201/workspaces/w%2F1/file?path=hello.txt");
+    expect(init?.method).toBe("PUT");
+    expect(new Headers(init?.headers).get("content-type")).toBe("text/plain");
+  });
+
+  it("sends binary content with Content-Type application/octet-stream", async () => {
+    const fetchMock = stubJsonFetch({ path: "image.png", size: 4, modifiedAt: "2026-06-10T00:00:00.000Z", created: true });
+    const binary = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+
+    await workspacesApi.writeWorkspaceFile("p 1", "w/1", "image.png", binary);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchCall(fetchMock, 0);
+    expect(url).toBe("/api/machines/local/projects/p%201/workspaces/w%2F1/file?path=image.png");
+    expect(init?.method).toBe("PUT");
+    expect(new Headers(init?.headers).get("content-type")).toBe("application/octet-stream");
+  });
+
+  it("sends createDirs and overwrite query parameters", async () => {
+    const fetchMock = stubJsonFetch({ path: "config/new.json", size: 10, modifiedAt: "2026-06-10T00:00:00.000Z", created: true });
+
+    await workspacesApi.writeWorkspaceFile("p 1", "w/1", "config/new.json", "{\"a\":1}", { createDirs: false, overwrite: false });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url] = fetchCall(fetchMock, 0);
+    expect(url).toContain("createDirs=false");
+    expect(url).toContain("overwrite=false");
+  });
+
+  it("parses WriteWorkspaceFileResponse correctly", async () => {
+    const fetchMock = stubJsonFetch({ path: "output/result.txt", size: 42, modifiedAt: "2026-06-10T12:00:00.000Z", created: true });
+
+    const result = await workspacesApi.writeWorkspaceFile("p 1", "w/1", "output/result.txt", "content");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    expect(result).toEqual({
+      path: "output/result.txt",
+      size: 42,
+      modifiedAt: "2026-06-10T12:00:00.000Z",
+      created: true,
+    });
+  });
+
+  it("routes through machine prefix for remote machines", async () => {
+    const fetchMock = stubJsonFetch({ path: "file.txt", size: 5, modifiedAt: "2026-06-10T00:00:00.000Z", created: false });
+
+    await workspacesApi.writeWorkspaceFile("p 1", "w/1", "file.txt", "data", undefined, "remote a");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url] = fetchCall(fetchMock, 0);
+    expect(url).toContain("/api/machines/remote%20a/");
   });
 });
 
