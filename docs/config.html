@@ -130,8 +130,8 @@
               <p>
                 Environment overrides include <code>PI_WEB_HOST</code>, <code>PI_WEB_PORT</code> / <code>PORT</code>,
                 <code>PI_WEB_ALLOWED_HOSTS</code>, <code>PI_WEB_MAX_UPLOAD_BYTES</code>, <code>PI_WEB_AGENT_COMMAND</code>,
-                <code>PI_WEB_AGENT_DIR</code>, <code>PI_WEB_AGENT_SESSION_DIR</code>, <code>PI_CODING_AGENT_DIR</code>,
-                <code>PI_CODING_AGENT_SESSION_DIR</code>, <code>PI_WEB_SPAWN_SESSIONS</code>, and
+                <code>PI_WEB_AGENT_DIR</code>, <code>PI_WEB_AGENT_SESSION_DIR</code>, <code>PI_CODING_AGENT_DIR</code> /
+                <code>PI_CODING_AGENT_SESSION_DIR</code> for Pi compatibility, <code>PI_WEB_SPAWN_SESSIONS</code>, and
                 <code>PI_WEB_SUBSESSIONS</code>.
               </p>
               <ul>
@@ -280,7 +280,7 @@
                     <tr>
                       <td>Agent state directory</td>
                       <td><code>agent.dir</code></td>
-                      <td><code>PI_WEB_AGENT_DIR</code>, <code>PI_CODING_AGENT_DIR</code></td>
+                      <td><code>PI_WEB_AGENT_DIR</code> (<code>PI_CODING_AGENT_DIR</code> for Pi compatibility)</td>
                       <td>Global/session daemon</td>
                       <td>Not supported locally</td>
                       <td>Restart session daemon; affects auth, models, settings, and sessions</td>
@@ -393,7 +393,7 @@
                     <tr>
                       <td>Agent session storage directory</td>
                       <td>—</td>
-                      <td><code>PI_WEB_AGENT_SESSION_DIR</code>, <code>PI_CODING_AGENT_SESSION_DIR</code></td>
+                      <td><code>PI_WEB_AGENT_SESSION_DIR</code> (<code>PI_CODING_AGENT_SESSION_DIR</code> for Pi compatibility)</td>
                       <td>Session daemon env</td>
                       <td>Not supported locally</td>
                       <td>Restart session daemon; env-only session storage override</td>
@@ -401,7 +401,7 @@
                     <tr>
                       <td>Agent config directory</td>
                       <td>—</td>
-                      <td><code>PI_WEB_AGENT_DIR</code>, <code>PI_CODING_AGENT_DIR</code></td>
+                      <td><code>PI_WEB_AGENT_DIR</code> (<code>PI_CODING_AGENT_DIR</code> for Pi compatibility)</td>
                       <td>Web/API + session daemon env</td>
                       <td>Not supported locally</td>
                       <td>Restart services</td>
@@ -452,31 +452,32 @@
               </p>
               <p>
                 <code>agent.dir</code> controls which compatible agent state directory PI WEB reads for auth providers,
-                model settings, settings, and session metadata. It defaults to <code>~/.pi/agent</code>. Set it to another
-                Pi-compatible state directory when you want an isolated profile or an alternate compatible agent's data.
+                model settings, settings, and session metadata. It defaults to <code>~/.pi/agent</code> only for the default
+                <code>pi</code> command. Set it explicitly when you want an isolated Pi profile or when
+                <code>agent.command</code> points at another compatible CLI.
               </p>
               <div class="code-card">
                 <pre><code>{
   "agent": {
-    "command": "pi",
-    "dir": "~/agent-profiles/research"
+    "command": "my-pi-fork",
+    "dir": "/opt/my-pi-fork/agent"
   }
 }</code></pre>
               </div>
               <p>
-                For example, an Oh My Pi profile can set <code>agent.command</code> to <code>omp</code> and
-                <code>agent.dir</code> to <code>~/.omp/agent</code>.
+                For example, a fork profile can set <code>agent.command</code> to <code>my-pi-fork</code> and
+                <code>agent.dir</code> to <code>/opt/my-pi-fork/agent</code>.
               </p>
               <p>
                 Environment variables take precedence over the config file. <code>PI_WEB_AGENT_COMMAND</code> selects the
-                command, <code>PI_WEB_AGENT_DIR</code> sets the state directory for any command, and
-                <code>PI_WEB_AGENT_SESSION_DIR</code> overrides session storage separately from <code>agent.dir</code>.
-                Existing Pi Coding Agent env names (<code>PI_CODING_AGENT_DIR</code> and
-                <code>PI_CODING_AGENT_SESSION_DIR</code>) remain supported for compatibility.
+                command, <code>PI_WEB_AGENT_DIR</code> sets the state directory, and <code>PI_WEB_AGENT_SESSION_DIR</code>
+                overrides session storage separately from <code>agent.dir</code>. Existing Pi Coding Agent env names
+                (<code>PI_CODING_AGENT_DIR</code> and <code>PI_CODING_AGENT_SESSION_DIR</code>) remain supported only for
+                Pi compatibility; alternate commands should use the explicit PI WEB variables or config keys.
               </p>
               <p>
-                Session directory overrides are environment-only; use <code>PI_WEB_AGENT_SESSION_DIR</code> unless you need
-                the legacy Pi-compatible <code>PI_CODING_AGENT_SESSION_DIR</code> name.
+                Session directory overrides are environment-only; use <code>PI_WEB_AGENT_SESSION_DIR</code> unless you are
+                intentionally using the legacy Pi-compatible <code>PI_CODING_AGENT_SESSION_DIR</code> name.
               </p>
               <div class="callout warning">
                 Restart the session daemon after changing agent settings. The web/API process can display the new config

@@ -50,23 +50,28 @@ describe("PI WEB config persistence", () => {
   });
 
   it("persists and reads custom agent runtime settings", () => {
-    savePiWebConfig({ agent: { command: "omp", dir: "~/.omp/agent" } }, testOptions());
+    savePiWebConfig({ agent: { command: "acme-agent", dir: "/opt/acme-agent/state" } }, testOptions());
 
-    expect(loadPiWebConfig(testOptions()).config.agent).toEqual({ command: "omp", dir: "~/.omp/agent" });
+    expect(loadPiWebConfig(testOptions()).config.agent).toEqual({ command: "acme-agent", dir: "/opt/acme-agent/state" });
   });
 
-  it("keeps the Pi agent directory default for alternate commands", () => {
-    expect(effectiveAgentConfig({ HOME: join(tempDir, ".home") }, { agent: { command: "omp" } })).toMatchObject({
-      command: "omp",
+  it("defaults to the Pi agent directory only for Pi commands and launchers", () => {
+    expect(effectiveAgentConfig({ HOME: join(tempDir, ".home") }, { agent: { command: "/tmp/pi.cmd" } })).toMatchObject({
+      command: "/tmp/pi.cmd",
       dir: join(tempDir, ".home", ".pi", "agent"),
       sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"],
     });
   });
 
+  it("requires an explicit agent directory for non-Pi commands", () => {
+    expect(() => effectiveAgentConfig({}, { agent: { command: "acme-agent" } })).toThrow('PI WEB config agent.dir or PI_WEB_AGENT_DIR is required when agent.command is "acme-agent"');
+    expect(() => savePiWebConfig({ agent: { command: "acme-agent" } }, testOptions())).toThrow('PI WEB config agent.dir or PI_WEB_AGENT_DIR is required when agent.command is "acme-agent"');
+  });
+
   it("resolves explicit alternate agent command and state directory settings", () => {
-    expect(effectiveAgentConfig({ HOME: join(tempDir, ".home") }, { agent: { command: "omp", dir: "~/.omp/agent" } })).toMatchObject({
-      command: "omp",
-      dir: join(tempDir, ".home", ".omp", "agent"),
+    expect(effectiveAgentConfig({ HOME: join(tempDir, ".home") }, { agent: { command: "acme-agent", dir: "~/agent-profiles/acme" } })).toMatchObject({
+      command: "acme-agent",
+      dir: join(tempDir, ".home", "agent-profiles", "acme"),
     });
   });
 
@@ -80,36 +85,40 @@ describe("PI WEB config persistence", () => {
       PI_CODING_AGENT_SESSION_DIR: "",
     };
 
-    expect(effectiveAgentConfig(env, { agent: { command: "omp", dir: "~/.omp/agent" } })).toMatchObject({
-      command: "omp",
-      dir: join(tempDir, ".home", ".omp", "agent"),
+    expect(effectiveAgentConfig(env, { agent: { command: "acme-agent", dir: "~/agent-profiles/acme" } })).toMatchObject({
+      command: "acme-agent",
+      dir: join(tempDir, ".home", "agent-profiles", "acme"),
     });
-    expect(hasAgentDirEnvOverride(env)).toBe(false);
-    expect(hasAgentSessionDirEnvOverride(env)).toBe(false);
+    expect(hasAgentDirEnvOverride(env, "acme-agent")).toBe(false);
+    expect(hasAgentSessionDirEnvOverride(env, "acme-agent")).toBe(false);
   });
 
-  it("uses generic agent directory env precedence and Pi compatibility fallback", () => {
+  it("uses explicit PI WEB agent directory env precedence", () => {
     expect(effectiveAgentConfig({
-      PI_WEB_AGENT_COMMAND: "omp",
+      PI_WEB_AGENT_COMMAND: "acme-agent",
       PI_WEB_AGENT_DIR: join(tempDir, "web-env-agent"),
       PI_CODING_AGENT_DIR: join(tempDir, "pi-env-agent"),
     }, { agent: { command: "pi", dir: join(tempDir, "config-agent") } })).toMatchObject({
-      command: "omp",
+      command: "acme-agent",
       dir: join(tempDir, "web-env-agent"),
     });
+  });
 
+  it("keeps legacy Pi env directory overrides scoped to Pi commands", () => {
     expect(effectiveAgentConfig({
       PI_CODING_AGENT_DIR: join(tempDir, "pi-env-agent"),
     }, { agent: { dir: join(tempDir, "config-agent") } })).toMatchObject({
       dir: join(tempDir, "pi-env-agent"),
     });
+
+    expect(() => effectiveAgentConfig({
+      PI_CODING_AGENT_DIR: join(tempDir, "pi-env-agent"),
+    }, { agent: { command: "acme-agent" } })).toThrow('PI WEB config agent.dir or PI_WEB_AGENT_DIR is required when agent.command is "acme-agent"');
   });
 
-  it("does not generate command-specific session directory env keys", () => {
-    const keys = ["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"];
-
-    expect(agentSessionDirEnvKeys()).toEqual(keys);
-    expect(effectiveAgentConfig({ HOME: join(tempDir, ".home"), PI_WEB_AGENT_COMMAND: "omp" }).sessionDirEnvKeys).toEqual(keys);
+  it("uses only explicit session directory env keys", () => {
+    expect(agentSessionDirEnvKeys()).toEqual(["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"]);
+    expect(effectiveAgentConfig({ HOME: join(tempDir, ".home"), PI_WEB_AGENT_COMMAND: "acme-agent", PI_WEB_AGENT_DIR: join(tempDir, "agent") }).sessionDirEnvKeys).toEqual(["PI_WEB_AGENT_SESSION_DIR"]);
   });
 
   it("exposes the default upload folder in the effective config", () => {

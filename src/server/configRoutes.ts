@@ -27,7 +27,7 @@ export function currentPiWebConfigResponse(options: LoadOptions = {}): PiWebConf
     exists: loaded.exists,
     config: loaded.config,
     effectiveConfig: effective.config,
-    envOverrides: piWebConfigEnvOverrides(env),
+    envOverrides: piWebConfigEnvOverrides(env, effective.config),
   };
 }
 
@@ -167,7 +167,8 @@ function parsePluginsRequest(value: unknown): NonNullable<PiWebConfig["plugins"]
   }));
 }
 
-function piWebConfigEnvOverrides(env: NodeJS.ProcessEnv): PiWebConfigEnvOverrides {
+function piWebConfigEnvOverrides(env: NodeJS.ProcessEnv, config: PiWebConfig = {}): PiWebConfigEnvOverrides {
+  const command = config.agent?.command;
   return {
     host: isEnvSet(env["PI_WEB_HOST"]),
     port: isEnvSet(env["PI_WEB_PORT"]) || isEnvSet(env["PORT"]),
@@ -175,8 +176,8 @@ function piWebConfigEnvOverrides(env: NodeJS.ProcessEnv): PiWebConfigEnvOverride
     spawnSessions: isEnvSet(env["PI_WEB_SPAWN_SESSIONS"]),
     subsessions: isEnvSet(env["PI_WEB_SUBSESSIONS"]),
     agentCommand: isEnvSet(env["PI_WEB_AGENT_COMMAND"]),
-    agentDir: hasAgentDirEnvOverride(env),
-    agentSessionDir: hasAgentSessionDirEnvOverride(env),
+    agentDir: hasAgentDirEnvOverride(env, command),
+    agentSessionDir: hasAgentSessionDirEnvOverride(env, command),
   };
 }
 
