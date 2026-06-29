@@ -1,4 +1,5 @@
 #!/usr/bin/env sh
+# shellcheck disable=SC2034
 set -eu
 
 log() {
@@ -278,7 +279,7 @@ compose_cmd() {
 }
 
 run_runtime_compose() {
-  compose_cmd -f compose.yml -f compose.override.yml "$@"
+  compose_cmd --project-name "$compose_project_name" --env-file .env -f compose.yml -f compose.override.yml "$@"
 }
 
 if [ -n "${XDG_DATA_HOME:-}" ]; then
@@ -298,16 +299,22 @@ install_dir_input=${PI_WEB_DOCKER_HOME:-$default_install_dir}
 install_dir=$(absolute_dir "$install_dir_input") || die "could not create install directory"
 env_file=$install_dir/.env
 
+asset_ref=$(value_from_env_or_existing_or_default PI_WEB_DOCKER_REF main)
+asset_base=${PI_WEB_DOCKER_ASSET_BASE:-https://raw.githubusercontent.com/jmfederico/pi-web/$asset_ref/docker}
+use_local_asset_dir=1
+if [ "${PI_WEB_DOCKER_REFRESH_ASSETS:-0}" = 1 ] || [ "${PI_WEB_DOCKER_REF+x}" = x ] || [ "${PI_WEB_DOCKER_ASSET_BASE+x}" = x ]; then
+  use_local_asset_dir=0
+fi
+
 if [ "${PI_WEB_DOCKER_ASSET_DIR+x}" = x ]; then
   asset_dir=$(absolute_existing_dir "$PI_WEB_DOCKER_ASSET_DIR") || die "asset directory does not exist: $PI_WEB_DOCKER_ASSET_DIR"
   asset_base=
   log "Using Docker assets from $asset_dir"
-elif asset_dir=$(find_local_asset_dir 2>/dev/null); then
+elif [ "$use_local_asset_dir" = 1 ] && local_asset_dir=$(find_local_asset_dir 2>/dev/null) && [ "$local_asset_dir" != "$install_dir" ]; then
+  asset_dir=$local_asset_dir
   asset_base=
   log "Using Docker assets from $asset_dir"
 else
-  asset_ref=${PI_WEB_DOCKER_REF:-main}
-  asset_base=${PI_WEB_DOCKER_ASSET_BASE:-https://raw.githubusercontent.com/jmfederico/pi-web/$asset_ref/docker}
   asset_dir=
   log "Fetching Docker assets from $asset_base"
 fi
@@ -319,15 +326,15 @@ cleanup_profile_helper() {
 trap cleanup_profile_helper EXIT
 
 if [ -n "$asset_dir" ]; then
-  profile_helper=$asset_dir/lib/host-profile.sh
+  profile_helper=$asset_dir/internal/host-profile.sh
   [ -f "$profile_helper" ] || die "missing Docker asset: $profile_helper"
 else
   profile_helper_temp=${TMPDIR:-/tmp}/pi-web-host-profile.$$
-  fetch_url "$asset_base/lib/host-profile.sh" "$profile_helper_temp"
+  fetch_url "$asset_base/internal/host-profile.sh" "$profile_helper_temp"
   profile_helper=$profile_helper_temp
 fi
 
-# shellcheck source=lib/host-profile.sh
+# shellcheck source=internal/host-profile.sh
 # shellcheck disable=SC1091
 . "$profile_helper"
 
@@ -340,9 +347,10 @@ write_asset Dockerfile 0644
 write_asset compose.yml 0644
 write_asset .dockerignore 0644
 write_asset install.sh 0755
-write_asset bin/hostexec 0755
-write_asset bin/install-opensuse-base 0755
-write_asset lib/host-profile.sh 0644
+write_asset pi-web-docker 0755
+write_asset internal/bin/hostexec 0755
+write_asset internal/image/install-opensuse-base 0755
+write_asset internal/host-profile.sh 0644
 
 custom_image_hooks_dir=$install_dir/custom-image.d
 mkdir -p "$custom_image_hooks_dir" || die "could not create custom image hooks directory: $custom_image_hooks_dir"
@@ -368,6 +376,7 @@ pi_web_nodejs_major=$(value_from_env_or_existing_or_default PI_WEB_NODEJS_MAJOR 
 pi_web_nodejs_repo=$(value_from_env_or_existing_or_default PI_WEB_NODEJS_REPO auto)
 pi_web_extra_zypper_packages=$(value_from_env_or_existing_or_default PI_WEB_EXTRA_ZYPPER_PACKAGES "")
 pi_web_image=$(value_from_env_or_existing_or_default PI_WEB_IMAGE pi-web:local)
+compose_project_name=$(value_from_env_or_existing_or_default COMPOSE_PROJECT_NAME pi-web)
 hostexec_image=$(value_from_env_or_existing_or_default HOSTEXEC_IMAGE alpine:3.22)
 pi_web_max_upload_bytes=$(value_from_env_or_existing_or_default PI_WEB_MAX_UPLOAD_BYTES 67108864)
 pi_web_extra_host_paths=$(value_from_env_or_existing_or_default PI_WEB_DOCKER_EXTRA_HOST_PATHS "")
@@ -378,6 +387,8 @@ require_non_empty DOCKER_GID "$docker_gid"
 require_non_empty PI_WEB_DOCKER_HOST_PROFILE "$pi_web_host_profile"
 require_non_empty HOSTEXEC_MODE "$hostexec_mode"
 require_non_empty PI_WEB_DOCKER_DATA_DIR "$data_dir"
+require_non_empty PI_WEB_DOCKER_INSTALL_DIR "$install_dir"
+require_non_empty PI_WEB_DOCKER_REF "$asset_ref"
 require_non_empty PI_WEB_BIND_ADDR "$pi_web_bind_addr"
 require_non_empty PI_WEB_PORT "$pi_web_port"
 require_non_empty PI_WEB_VERSION "$pi_web_version"
@@ -386,13 +397,14 @@ require_non_empty PI_WEB_OPENSUSE_IMAGE "$pi_web_opensuse_image"
 require_non_empty PI_WEB_NODEJS_MAJOR "$pi_web_nodejs_major"
 require_non_empty PI_WEB_NODEJS_REPO "$pi_web_nodejs_repo"
 require_non_empty PI_WEB_IMAGE "$pi_web_image"
+require_non_empty COMPOSE_PROJECT_NAME "$compose_project_name"
 require_non_empty HOSTEXEC_IMAGE "$hostexec_image"
 require_non_empty PI_WEB_MAX_UPLOAD_BYTES "$pi_web_max_upload_bytes"
 
 pi_web_extra_zypper_packages_env=$(dotenv_quote "$pi_web_extra_zypper_packages")
 pi_web_extra_host_paths_env=$(dotenv_quote "$pi_web_extra_host_paths")
 compose_override_file=$install_dir/compose.override.yml
-if ! pi_web_docker_host_write_compose_override "$compose_override_file" "$pi_web_host_profile" "$pi_web_extra_host_paths"; then
+if ! pi_web_docker_host_write_compose_override "$compose_override_file" "$pi_web_host_profile" "$pi_web_extra_host_paths" "$install_dir"; then
   die "could not write host-specific Compose override"
 fi
 
@@ -413,8 +425,10 @@ PI_WEB_DOCKER_HOST_PROFILE=$pi_web_host_profile
 HOSTEXEC_MODE=$hostexec_mode
 PI_WEB_DOCKER_EXTRA_HOST_PATHS=$pi_web_extra_host_paths_env
 
-# Persistent data and localhost-only default exposure.
+# Persistent data, Docker control root, and localhost-only default exposure.
 PI_WEB_DOCKER_DATA_DIR=$data_dir
+PI_WEB_DOCKER_INSTALL_DIR=$install_dir
+PI_WEB_DOCKER_REF=$asset_ref
 PI_WEB_BIND_ADDR=$pi_web_bind_addr
 PI_WEB_PORT=$pi_web_port
 
@@ -428,8 +442,9 @@ PI_WEB_NODEJS_MAJOR=$pi_web_nodejs_major
 PI_WEB_NODEJS_REPO=$pi_web_nodejs_repo
 PI_WEB_EXTRA_ZYPPER_PACKAGES=$pi_web_extra_zypper_packages_env
 
-# Runtime image names and limits.
+# Runtime image names, Compose project, and limits.
 PI_WEB_IMAGE=$pi_web_image
+COMPOSE_PROJECT_NAME=$compose_project_name
 HOSTEXEC_IMAGE=$hostexec_image
 PI_WEB_MAX_UPLOAD_BYTES=$pi_web_max_upload_bytes
 EOF
@@ -485,7 +500,7 @@ log "Recreating split PI WEB Docker services ..."
 log ""
 log "PI WEB Docker runtime is ready: http://$pi_web_bind_addr:$pi_web_port"
 log "Install directory: $install_dir"
-log "To update later, re-run this installer."
+log "To update later, run: $install_dir/pi-web-docker update"
 (
   cd "$install_dir"
   run_runtime_compose ps

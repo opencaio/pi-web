@@ -227,7 +227,7 @@ Configure workspace tasks in `.pi-web/tasks.json`:
       "title": "Start Docker",
       "group": "Docker",
       "description": "Start the local Docker Compose environment.",
-      "command": "./docker/scripts/docker-compose-dev up -d"
+      "command": "./docker/pi-web-docker --dev start"
     },
     {
       "id": "db.reset",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
-import { parseCommandResult, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMessagePage, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parseSessionStatus, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
+import { parseCommandResult, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMessagePage, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseSessionStatus, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
 
 describe("API parsers", () => {
   it("parses PI WEB config responses", () => {
@@ -29,6 +29,33 @@ describe("API parsers", () => {
       },
       capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived],
     })).toMatchObject({ capabilities: [PI_WEB_CAPABILITIES.sessionsDeleteArchived] });
+  });
+
+  it("parses Docker PI WEB installation metadata", () => {
+    const response = {
+      packageName: "@jmfederico/pi-web",
+      generatedAt: "now",
+      components: {
+        web: { component: "web", label: "Web/UI", runtimeVersion: "1.0.0", available: true, stale: false, installation: { kind: "docker", path: "/srv/pi-web-docker", dockerMode: "runtime" } },
+        sessiond: { component: "sessiond", label: "Session daemon", runtimeVersion: "1.0.0", available: true, stale: false, installation: { kind: "docker", dockerMode: "dev" } },
+      },
+      release: { packageName: "@jmfederico/pi-web", updateAvailable: false },
+      commands: { restart: "pi-web-docker restart", status: "pi-web-docker status" },
+      messages: [],
+    };
+
+    const parsed = parsePiWebStatusResponse(response);
+
+    expect(parsed.components.web.installation).toEqual({ kind: "docker", path: "/srv/pi-web-docker", dockerMode: "runtime" });
+    expect(parsed.components.sessiond.installation).toEqual({ kind: "docker", dockerMode: "dev" });
+    expect(parsed.commands).toEqual({ restart: "pi-web-docker restart", status: "pi-web-docker status" });
+    expect(() => parsePiWebStatusResponse({
+      ...response,
+      components: {
+        ...response.components,
+        web: { ...response.components.web, installation: { kind: "docker", dockerMode: "hidden" } },
+      },
+    })).toThrow("Invalid PI WEB Docker mode");
   });
 
   it("parses PI WEB plugin status responses", () => {

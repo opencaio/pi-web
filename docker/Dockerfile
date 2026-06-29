@@ -19,7 +19,7 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false \
   SHELL=/bin/bash \
   TERM=xterm-256color
 
-COPY bin/install-opensuse-base /usr/local/sbin/install-pi-web-opensuse-base
+COPY internal/image/install-opensuse-base /usr/local/sbin/install-pi-web-opensuse-base
 RUN chmod 0755 /usr/local/sbin/install-pi-web-opensuse-base \
   && install-pi-web-opensuse-base
 
@@ -55,8 +55,9 @@ COPY --from=package /usr/local/lib/node_modules /usr/local/lib/node_modules
 COPY --from=package /usr/local/bin /usr/local/bin
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins /usr/local/libexec/docker/cli-plugins
-COPY bin/hostexec /usr/local/bin/hostexec
-RUN chmod 0755 /usr/local/bin/hostexec
+COPY internal/bin/hostexec /usr/local/bin/hostexec
+COPY pi-web-docker /usr/local/bin/pi-web-docker
+RUN chmod 0755 /usr/local/bin/hostexec /usr/local/bin/pi-web-docker
 
 COPY custom-image.d/ /tmp/pi-web-custom-image.d/
 RUN bash -euxo pipefail -c '\

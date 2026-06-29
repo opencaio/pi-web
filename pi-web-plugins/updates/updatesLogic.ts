@@ -45,16 +45,16 @@ export function messageCount(state: PluginRuntimeState | undefined): number {
   return messagesFor(state).length;
 }
 
-export function isLocalOrUnknownInstallation(installation: PiWebInstallationInfo | undefined): boolean {
-  return installation === undefined || installation.kind === "local" || installation.kind === "unknown";
+export function isSelfManagedInstallation(installation: PiWebInstallationInfo | undefined): boolean {
+  return installation === undefined || installation.kind === "local" || installation.kind === "docker" || installation.kind === "unknown";
 }
 
 export function shouldShowUpdatesPanel(state: PluginRuntimeState | undefined): boolean {
   const status = statusFor(state);
   if (messageCount(state) > 0) return true;
   if (status === undefined) return false;
-  return isLocalOrUnknownInstallation(status.components.web.installation)
-    || isLocalOrUnknownInstallation(status.components.sessiond.installation);
+  return isSelfManagedInstallation(status.components.web.installation)
+    || isSelfManagedInstallation(status.components.sessiond.installation);
 }
 
 export function formatVersion(version: string | undefined): string {
@@ -70,5 +70,6 @@ export function installationLabel(installation: PiWebInstallationInfo | undefine
   }
   if (installation.kind === "npm-global") return "global npm package";
   if (installation.kind === "local") return "local checkout";
+  if (installation.kind === "docker") return installation.dockerMode === "dev" ? "Docker development runtime" : "Docker runtime";
   return "installation unknown";
 }
