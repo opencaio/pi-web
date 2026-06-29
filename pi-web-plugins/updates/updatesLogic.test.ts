@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PiWebComponentStatus, PiWebStatusMessage, PiWebStatusResponse, PluginRuntimeState } from "@jmfederico/pi-web/plugin-api";
-import { additionalCommands, formatVersion, installationLabel, messageCount, recommendedCommand, shouldShowUpdatesPanel } from "./updatesLogic";
+import { additionalCommands, fallbackDockerStatus, formatVersion, installationLabel, messageCount, recommendedCommand, shouldShowUpdatesPanel } from "./updatesLogic";
 
 function component(overrides: Partial<PiWebComponentStatus> = {}): PiWebComponentStatus {
   return {
@@ -181,6 +181,11 @@ describe("shouldShowUpdatesPanel", () => {
     expect(shouldShowUpdatesPanel(stateWith(value))).toBe(true);
   });
 
+  it("shows the panel when a federated Docker runtime hint is available before status is parsed", () => {
+    expect(shouldShowUpdatesPanel(undefined, { dockerMode: "dev" })).toBe(true);
+    expect(shouldShowUpdatesPanel(undefined, { dockerMode: "runtime" })).toBe(true);
+  });
+
   it("hides the panel when status is unavailable", () => {
     expect(shouldShowUpdatesPanel(stateWith(undefined))).toBe(false);
     expect(shouldShowUpdatesPanel(undefined)).toBe(false);
@@ -220,6 +225,24 @@ describe("shouldShowUpdatesPanel", () => {
       },
     });
     expect(shouldShowUpdatesPanel(stateWith(value))).toBe(false);
+  });
+});
+
+describe("fallbackDockerStatus", () => {
+  it("creates Docker development commands from a federated runtime hint", () => {
+    const fallback = fallbackDockerStatus({ dockerMode: "dev" }, "generated");
+    expect(fallback?.generatedAt).toBe("generated");
+    expect(fallback?.components.web.installation).toEqual({ kind: "docker", dockerMode: "dev" });
+    expect(fallback?.commands).toMatchObject({
+      update: "pi-web-docker --dev update",
+      restart: "pi-web-docker --dev restart",
+      status: "pi-web-docker --dev status",
+    });
+    expect(fallback?.messages[0]?.id).toBe("docker-status-compatibility");
+  });
+
+  it("does not create a fallback without a Docker runtime hint", () => {
+    expect(fallbackDockerStatus({})).toBeUndefined();
   });
 });
 
