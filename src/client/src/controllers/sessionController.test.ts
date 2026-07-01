@@ -879,7 +879,7 @@ describe("SessionController", () => {
     expect(state.error).toContain("requires an updated Pi-Web runtime");
   });
 
-  it("reloads the selected session, discards the cached transcript, and re-fetches history", async () => {
+  it("reloads the selected session from disk, discards the cached transcript, and re-fetches history", async () => {
     Object.defineProperty(globalThis, "localStorage", { value: new MemoryStorage(), configurable: true });
     const reloadCalls: string[] = [];
     const messageCalls: string[] = [];
@@ -917,7 +917,7 @@ describe("SessionController", () => {
     expect(state.error).toBe("");
   });
 
-  it("does not reload sessions when the selected machine runtime does not support it", async () => {
+  it("does not reload sessions from disk when the selected machine runtime does not support it", async () => {
     const reloadCalls: string[] = [];
     let state: AppState = {
       ...initialAppState(),
@@ -943,7 +943,7 @@ describe("SessionController", () => {
     await controller.reloadSession(oldSession);
 
     expect(reloadCalls).toEqual([]);
-    expect(state.error).toContain("requires an updated Pi-Web runtime");
+    expect(state.error).toContain("Reloading sessions from disk requires an updated Pi-Web runtime");
   });
 
   it("forgets archived selections when the archived section collapse clears selection", async () => {

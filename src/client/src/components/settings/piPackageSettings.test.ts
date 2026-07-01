@@ -37,8 +37,9 @@ describe("Pi package settings helpers", () => {
   it("describes the browser and session reload follow-up without requiring sessiond restarts", () => {
     const message = piPackageMutationFollowUpMessage("install");
 
-    expect(message).toContain("Reload the browser page");
-    expect(message).toContain("Reload existing Pi sessions");
+    expect(message).toContain("Type /reload in each idle PI WEB session");
+    expect(message).toContain("extensions, skills, prompt templates, themes, and context/system prompt files");
+    expect(message).toContain("Reload the browser page separately for PI WEB browser plugin changes");
     expect(message).not.toContain("session daemon");
     expect(message).not.toContain("sessiond");
   });

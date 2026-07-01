@@ -54,5 +54,5 @@ export function isPiPackageOperationPending(operation: PiPackageOperationState |
 
 export function piPackageMutationFollowUpMessage(action: PiPackageMutationAction): string {
   const verb = action === "install" ? "installed" : action === "remove" ? "removed" : "updated";
-  return `Pi package ${verb}. Reload the browser page to import newly discovered PI WEB browser plugins. Reload existing Pi sessions, or use /reload in Pi, so extensions, skills, prompt templates, and themes are rediscovered.`;
+  return `Pi package ${verb}. Type /reload in each idle PI WEB session to rediscover Pi runtime resources: extensions, skills, prompt templates, themes, and context/system prompt files. Reload the browser page separately for PI WEB browser plugin changes.`;
 }

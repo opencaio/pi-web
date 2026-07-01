@@ -15,13 +15,13 @@ They do **not** run in the session daemon, do not get a server-side hook API, an
 
 ## Pi packages vs PI WEB plugins
 
-**Pi packages** are packages managed by Pi (`pi install`, `pi remove`, `pi update`). A Pi package can provide extensions, skills, prompt templates, themes, and/or PI WEB browser plugins. Many Pi packages do not include a PI WEB plugin.
+**Pi packages** are packages managed by Pi (`pi install`, `pi remove`, `pi update`). A Pi package can provide extensions, skills, prompt templates, themes, context/system prompt files, and/or PI WEB browser plugins. Many Pi packages do not include a PI WEB plugin.
 
 **PI WEB plugins** are browser-side PI WEB UI modules discovered from bundled, local, dev, and installed Pi-package sources. Enabling or disabling a PI WEB plugin is a PI WEB config task; installing, removing, or updating a Pi package is a Pi package-manager task.
 
 Use **Settings → Pi packages** to view configured Pi packages or install/remove/update a package. Enter only the package source, such as `npm:@scope/package`, a git/URL source, or a local path. PI WEB uses Pi's default package location, equivalent to `pi install <source>`, and does not ask for an install location.
 
-Use **Settings → PI WEB plugins** to enable or disable discovered PI WEB browser plugins before the browser imports them. After installing, removing, or updating a Pi package, reload the browser page to import newly discovered PI WEB browser plugins. Reload existing Pi sessions, or use `/reload` in Pi, so session-runtime resources such as extensions, skills, prompt templates, and themes are rediscovered. A routine session daemon restart is not required.
+Use **Settings → PI WEB plugins** to enable or disable discovered PI WEB browser plugins before the browser imports them. After installing, removing, or updating a Pi package, type `/reload` in each idle PI WEB session to refresh Pi runtime resources such as extensions, skills, prompt templates, themes, and context/system prompt files as supported by Pi. Reload the browser page separately for newly discovered or changed PI WEB browser plugins. A routine session daemon restart is not required.
 
 ## Trust model
 

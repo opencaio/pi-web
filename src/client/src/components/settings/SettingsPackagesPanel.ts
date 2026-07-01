@@ -23,7 +23,7 @@ export class SettingsPackagesPanel extends LitElement {
       <div class="section-heading">
         <div>
           <h2>Pi packages</h2>
-          <p>Install, remove, and update packages managed by Pi. Pi packages can provide extensions, skills, prompt templates, themes, and PI WEB browser plugins.</p>
+          <p>Install, remove, and update packages managed by Pi. Pi packages can provide extensions, skills, prompt templates, themes, context/system prompt files, and PI WEB browser plugins.</p>
         </div>
         <button class="secondary" ?disabled=${this.loading || this.isOperating} @click=${() => { void this.onReload?.(); }}>Reload</button>
       </div>
