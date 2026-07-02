@@ -186,6 +186,8 @@ export interface SessionRef {
 
 export interface SessionInfo extends SessionRef {
   path: string;
+  /** True when the server has verified a backing session file exists; false when known transient. */
+  persisted?: boolean;
   name?: string;
   created: string;
   modified: string;
@@ -380,6 +382,8 @@ export interface ThinkingLevelsResponse {
 
 export interface SessionStatus {
   sessionId: string;
+  /** True when the server has verified a backing session file exists; false when known transient. */
+  persisted?: boolean;
   model?: SessionModel;
   thinkingLevel?: string;
   isStreaming: boolean;

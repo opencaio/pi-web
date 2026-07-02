@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { open, readFile, writeFile } from "node:fs/promises";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
@@ -540,6 +541,7 @@ export class PiSessionService {
       id: session.sessionId,
       path: session.sessionFile ?? "",
       cwd,
+      persisted: sessionFileExists(session.sessionFile),
       created: new Date().toISOString(),
       modified: new Date().toISOString(),
       messageCount: session.messages.length,
@@ -1857,6 +1859,7 @@ export class PiSessionService {
     const contextUsage = session.getContextUsage();
     return {
       sessionId: session.sessionId,
+      persisted: sessionFileExists(session.sessionFile),
       ...(model === undefined ? {} : { model }),
       thinkingLevel: session.thinkingLevel,
       isStreaming: session.isStreaming,
@@ -1949,6 +1952,7 @@ function clientSessionFromListEntry(session: PiSessionListEntry): ClientSession 
     id: session.id,
     path: session.path,
     cwd: session.cwd,
+    persisted: true,
     ...(session.name === undefined ? {} : { name: session.name }),
     created: session.created.toISOString(),
     modified: session.modified.toISOString(),
@@ -2149,6 +2153,15 @@ function subsessionHydratedParentKey(parentSessionId: string, parentSessionFile:
 
 function sessionPathsEqual(a: string, b: string): boolean {
   return cwdPathsEqual(a, b);
+}
+
+function sessionFileExists(sessionFile: string | undefined): sessionFile is string {
+  if (sessionFile === undefined || sessionFile === "") return false;
+  try {
+    return statSync(sessionFile).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function sessionFileMatches(session: PiAgentSession, expectedSessionFile: string | undefined): boolean {
