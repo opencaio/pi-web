@@ -2,6 +2,7 @@ import { LitElement, css, html, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { SessionActivity, SessionInfo, SessionStatus } from "../api";
 import { isCachedNewSessionInfo } from "../cachedNewSessions";
+import { shortSessionId } from "../sessionLabels";
 import { isSessionActive } from "../../../shared/activity";
 import { actionMenuPanelStyle } from "./actionMenu";
 import { renderActionActivityIndicator, type ActivityIndicatorKind } from "./activityBadge";
@@ -11,7 +12,7 @@ import { listStyles } from "./shared";
 
 function sessionLabel(session: SessionInfo): string {
   if (session.name !== undefined && session.name !== "") return session.name;
-  return session.firstMessage !== "" ? session.firstMessage : session.id.slice(0, 8);
+  return session.firstMessage !== "" ? session.firstMessage : shortSessionId(session.id);
 }
 
 export interface SessionRow {
