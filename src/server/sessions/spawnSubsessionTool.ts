@@ -178,7 +178,7 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
   const spawnTool = defineTool<typeof SpawnSubsessionParams, SpawnSubsessionResult>({
     name: "spawn_subsession",
     label: "Spawn subsession",
-    description: "Start a tracked child session and send it an initial prompt. The subsession runs independently and a human can interact with it, but unlike spawn_session it is linked to you: you are notified when it stops working (finished, idle, or errored), and you can inspect it with list_subsessions, check_subsession (a quick glance at its latest output), and read_subsession (read through its transcript). Use this to delegate work you intend to follow up on.",
+    description: "Start an asynchronous tracked child session. The call returns after dispatch. When the child becomes idle or errors, a notification starts a new parent turn or queues behind the current one. Do not poll or sleep while waiting: continue useful independent work, or end this turn normally if blocked. Inspect only when immediately actionable.",
     promptSnippet: "spawn_subsession: start a tracked child session you will be notified about",
     parameters: SpawnSubsessionParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -193,7 +193,7 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
         ...(ctx.model === undefined ? {} : { model: ctx.model }),
       });
       return {
-        content: [{ type: "text", text: `Started subsession ${result.sessionId} in ${result.cwd}. You will be notified when it stops working.` }],
+        content: [{ type: "text", text: `Started subsession ${result.sessionId} in ${result.cwd}. Continue independent work or end this turn if blocked; do not poll. You will be resumed when it stops working.` }],
         details: result,
       };
     },

@@ -52,6 +52,19 @@ describe("createSubsessionToolDefinitions", () => {
     expect(firstText(result.content)).toContain("Started subsession child-1");
   });
 
+  it("tells the parent to work independently or end its turn instead of polling", async () => {
+    const { spawn: spawnTool } = tools({
+      spawn: vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/repos/a-feature" })),
+    });
+
+    expect(spawnTool.description).toContain("Do not poll or sleep while waiting");
+
+    const result = await spawnTool.execute("call-guidance", { prompt: "do it" }, undefined, undefined, ctxFor("parent-1", undefined));
+    const message = firstText(result.content);
+    expect(message).toContain("Continue independent work or end this turn if blocked; do not poll");
+    expect(message).toContain("You will be resumed when it stops working");
+  });
+
   it("spawn_subsession omits the inherited model when the dispatching session has no current model", async () => {
     const spawn = vi.fn(() => Promise.resolve({ sessionId: "child-2", cwd: "/repos/a" }));
     const { spawn: spawnTool } = tools({ spawn });
