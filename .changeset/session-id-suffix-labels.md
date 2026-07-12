@@ -2,4 +2,4 @@
 "@jmfederico/pi-web": patch
 ---
 
-Show the random-looking suffix for unnamed sessions so newly created empty sessions are easier to distinguish.
+Show generated suffixes for unnamed sessions so multiple new empty chats are easier to distinguish.

@@ -2,4 +2,4 @@
 "@jmfederico/pi-web": patch
 ---
 
-Improve bulk session archive and delete reliability by adding true bulk mutation support for large session selections.
+Make archive and delete actions reliable for large multi-session selections.

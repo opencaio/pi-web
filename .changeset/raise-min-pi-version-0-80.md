@@ -2,4 +2,4 @@
 "@jmfederico/pi-web": patch
 ---
 
-Raise the minimum supported Pi version to 0.80, removing reliance on Pi's deprecated `pi-ai` compat API for session-name generation in favor of the stable `pi-agent-core` streaming interface.
+Require Pi 0.80 or newer and use its stable streaming API for session-name generation.
