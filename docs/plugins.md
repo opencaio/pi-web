@@ -202,9 +202,11 @@ Built-in plugins can be managed from **Settings → PI WEB plugins** or with the
 ### Updates
 
 **Plugin id:** `updates`
-**What it does:** adds a conditional **Updates** workspace tab with PI WEB update, restart, and installed-service guidance.
+**What it does:** adds a conditional **Updates** workspace tab with PI WEB update, restart, and installed-service guidance, plus a **Check for PI WEB Updates** action for the selected machine.
 
-Updates is enabled by default. It declares `machineSpecific: true` so the gateway Updates tab only appears for the local machine; while a remote machine is selected, that remote machine's Updates plugin is used if available. To hide it, disable `updates` in **Settings → PI WEB plugins** or set:
+While a browser tab is connected, PI WEB refreshes the selected machine's status every 15 minutes. npm release lookups are cached on that machine for six hours, so the automatic refresh normally contacts npm at most once in that window. Run **Check for PI WEB Updates** from the action palette to bypass both caches and check immediately. Operator settings that skip remote version checks, such as `PI_WEB_OFFLINE`, are still respected.
+
+Updates is enabled by default. It declares `machineSpecific: true` so the gateway Updates tab and action only appear for the local machine; while a remote machine is selected, that remote machine's Updates plugin is used if available. To hide it, disable `updates` in **Settings → PI WEB plugins** or set:
 
 ```json
 {
@@ -474,6 +476,7 @@ interface PluginRuntimeContext {
   openTerminal: (options?: { terminalId?: string }) => void;
   refreshFiles: () => void | Promise<void>;
   refreshGit: () => void | Promise<void>;
+  checkForPiWebUpdates?: () => void | Promise<void>;
   startSession: () => void | Promise<void>;
   archiveSession: () => void | Promise<void>;
   stopActiveWork: () => void | Promise<void>;
@@ -488,6 +491,7 @@ Notes:
 - `enabled` is evaluated when the action palette asks for actions.
 - `selectWorkspaceTool()` expects a qualified panel id such as `my-plugin:workspace.info`.
 - `openTerminal()` switches to the built-in terminal panel. Pass `{ terminalId }` to deep-link to a specific terminal.
+- `checkForPiWebUpdates()` forces a fresh update check on the selected machine and refreshes `state.piWebStatus`. It is optional so plugins remain compatible with older PI WEB hosts.
 - Only fields documented here and declared in `plugin-api.d.ts` are stable public plugin API. Anything else is experimental: it may become public API later, change shape, or disappear.
 
 ### Prompt editor API
