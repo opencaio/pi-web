@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { randomUUID } from "node:crypto";
 import type {
   NativeServiceAuthoritativeProbe,
@@ -15,7 +16,8 @@ import type {
 export type ProbeCommandResult =
   | { kind: "completed"; status: number; stdout: string; stderr: string }
   | { kind: "timeout"; stdout: string; stderr: string }
-  | { kind: "spawn-failure"; message: string; stdout: string; stderr: string };
+  | { kind: "spawn-failure"; message: string; stdout: string; stderr: string }
+  | { kind: "output-limit"; stdout: string; stderr: string };
 
 export interface ProbeCommandRunner {
   run(command: string, args: readonly string[], timeoutMs: number): Promise<ProbeCommandResult>;
@@ -23,8 +25,8 @@ export interface ProbeCommandRunner {
 
 export interface LaunchdProbeFileSystem {
   createTemporaryDirectory(prefix: string): Promise<string>;
-  writeFile(path: string, contents: string): Promise<void>;
-  readFile(path: string): Promise<string>;
+  writeFile(path: string, contents: string, mode: number): Promise<void>;
+  readOptionalFile(path: string): Promise<string | null>;
   removeDirectory(path: string): Promise<void>;
 }
 
@@ -48,6 +50,8 @@ export interface LaunchdProbeDependencies extends CommonProbeDependencies {
 const defaultCommandTimeoutMs = 15_000;
 const defaultProbeTimeoutMs = 15_000;
 const defaultPollIntervalMs = 50;
+const maxCapturedCommandOutputBytes = 1024 * 1024;
+const maxLaunchdProbeFileBytes = 1024 * 1024;
 
 export class SystemdNativeServiceProbe implements NativeServiceAuthoritativeProbe {
   public constructor(private readonly dependencies: SystemdProbeDependencies) {}
@@ -64,12 +68,12 @@ export class SystemdNativeServiceProbe implements NativeServiceAuthoritativeProb
     const args = systemdRunArguments(request, unitName, command);
     const result = await this.dependencies.commandRunner.run("systemd-run", args, this.dependencies.commandTimeoutMs);
 
-    if (result.kind === "timeout") {
+    if (result.kind === "timeout" || result.kind === "output-limit") {
       const cleanupFailure = await this.cleanupTimedOutUnit(unitName);
-      return cleanupFailure ?? infrastructureFailure(
-        "timeout",
-        `Timed out waiting for transient systemd unit ${unitName}.`,
-      );
+      if (cleanupFailure !== null) return cleanupFailure;
+      return result.kind === "timeout"
+        ? infrastructureFailure("timeout", `Timed out waiting for transient systemd unit ${unitName}.`)
+        : infrastructureFailure("manager", `Transient systemd probe ${unitName} exceeded the output limit.`);
     }
     if (result.kind === "spawn-failure") {
       return infrastructureFailure("manager", `Could not start systemd-run: ${result.message}`);
@@ -89,18 +93,19 @@ export class SystemdNativeServiceProbe implements NativeServiceAuthoritativeProb
       ["--user", "stop", unitName],
       this.dependencies.commandTimeoutMs,
     );
-    if (stop.kind !== "completed" || stop.status !== 0) {
-      return infrastructureFailure("cleanup", `Could not stop timed-out transient systemd unit ${unitName}: ${commandFailureDetail(stop)}`);
-    }
-    const reset = await this.dependencies.commandRunner.run(
+    const inspected = await this.dependencies.commandRunner.run(
       "systemctl",
-      ["--user", "reset-failed", unitName],
+      ["--user", "show", unitName, "--property=LoadState", "--value"],
       this.dependencies.commandTimeoutMs,
     );
-    if (reset.kind !== "completed" || reset.status !== 0) {
-      return infrastructureFailure("cleanup", `Could not collect timed-out transient systemd unit ${unitName}: ${commandFailureDetail(reset)}`);
+    if (inspected.kind === "completed" && inspected.status === 0 && inspected.stdout.trim() === "not-found") {
+      return null;
     }
-    return null;
+    const details = [
+      `stop: ${commandFailureDetail(stop)}`,
+      `load state: ${commandFailureDetail(inspected)}`,
+    ].join("; ");
+    return infrastructureFailure("cleanup", `Could not confirm cleanup of timed-out transient systemd unit ${unitName}: ${details}`);
   }
 }
 
@@ -128,10 +133,18 @@ export class LaunchdNativeServiceProbe implements NativeServiceAuthoritativeProb
       const plistPath = join(directory, "probe.plist");
       const stdoutPath = join(directory, "stdout.log");
       const stderrPath = join(directory, "stderr.log");
-      const command = prerequisiteProbeCommand(request.shell.name, request.prerequisites, outputPrefix);
+      const pendingResultPath = join(directory, "result.pending");
+      const resultPath = join(directory, "result.log");
+      const command = prerequisiteProbeCommand(
+        request.shell.name,
+        request.prerequisites,
+        outputPrefix,
+        { pendingPath: pendingResultPath, completedPath: resultPath },
+      );
       await this.dependencies.fileSystem.writeFile(
         plistPath,
         launchdProbePlist(request, label, command, stdoutPath, stderrPath),
+        0o600,
       );
 
       const bootstrap = await this.dependencies.commandRunner.run(
@@ -140,11 +153,11 @@ export class LaunchdNativeServiceProbe implements NativeServiceAuthoritativeProb
         this.dependencies.commandTimeoutMs,
       );
       if (bootstrap.kind !== "completed" || bootstrap.status !== 0) {
-        bootstrapState = bootstrap.kind === "timeout" ? "uncertain" : "not-loaded";
+        bootstrapState = bootstrap.kind === "spawn-failure" ? "not-loaded" : "uncertain";
         result = commandInfrastructureFailure("bootstrap launchd probe", bootstrap);
       } else {
         bootstrapState = "loaded";
-        result = await this.waitForResult(target, stdoutPath, stderrPath, request.prerequisites, outputPrefix);
+        result = await this.waitForResult(target, resultPath, request.prerequisites, outputPrefix);
       }
     } catch (error: unknown) {
       result = infrastructureFailure("manager", `Could not prepare launchd probe: ${errorMessage(error)}`);
@@ -156,48 +169,25 @@ export class LaunchdNativeServiceProbe implements NativeServiceAuthoritativeProb
 
   private async waitForResult(
     target: string,
-    stdoutPath: string,
-    stderrPath: string,
+    resultPath: string,
     prerequisites: readonly NativeServicePrerequisite[],
     outputPrefix: string,
   ): Promise<NativeServiceProbeResult> {
     const deadline = this.dependencies.now() + this.dependencies.probeTimeoutMs;
     while (this.dependencies.now() < deadline) {
-      const printed = await this.dependencies.commandRunner.run(
-        "launchctl",
-        ["print", target],
-        this.dependencies.commandTimeoutMs,
+      const remainingMs = Math.max(0, deadline - this.dependencies.now());
+      const boundedRead = await readOptionalFileBounded(
+        this.dependencies.fileSystem,
+        resultPath,
+        remainingMs,
       );
-      if (printed.kind !== "completed" || printed.status !== 0) {
-        return commandInfrastructureFailure("inspect launchd probe", printed);
+      if (boundedRead.kind === "deadline") break;
+      if (boundedRead.kind === "read-failure") {
+        return infrastructureFailure("manager", `Could not read launchd probe result: ${errorMessage(boundedRead.error)}`);
       }
-
-      const state = launchdField(printed.stdout, "state");
-      if (state === undefined) {
-        return infrastructureFailure("malformed-output", `launchctl returned no state for ${target}.`);
-      }
-      const lastExitCode = launchdIntegerField(printed.stdout, "last exit code");
-      if (state === "not running" && lastExitCode !== undefined) {
-        let stdout: string;
-        let stderr: string;
-        try {
-          [stdout, stderr] = await Promise.all([
-            this.dependencies.fileSystem.readFile(stdoutPath),
-            this.dependencies.fileSystem.readFile(stderrPath),
-          ]);
-        } catch (error: unknown) {
-          return infrastructureFailure("manager", `Could not read launchd probe output: ${errorMessage(error)}`);
-        }
-        if (lastExitCode !== 0) {
-          return infrastructureFailure(
-            "manager",
-            `Launchd probe service exited with status ${String(lastExitCode)}: ${firstOutput(stderr, stdout, "no output")}`,
-          );
-        }
-        return parseProbeOutput(stdout, prerequisites, outputPrefix);
-      }
-
-      await this.dependencies.sleep(this.dependencies.pollIntervalMs);
+      if (boundedRead.output !== null) return parseProbeOutput(boundedRead.output, prerequisites, outputPrefix);
+      const pollDelayMs = Math.min(this.dependencies.pollIntervalMs, Math.max(0, deadline - this.dependencies.now()));
+      await this.dependencies.sleep(pollDelayMs);
     }
     return infrastructureFailure("timeout", `Timed out waiting for launchd probe ${target}.`);
   }
@@ -208,28 +198,21 @@ export class LaunchdNativeServiceProbe implements NativeServiceAuthoritativeProb
     bootstrapState: "not-loaded" | "loaded" | "uncertain",
   ): Promise<NativeServiceProbeResult | null> {
     const failures: string[] = [];
-    let shouldBootout = bootstrapState === "loaded";
-    if (bootstrapState === "uncertain") {
-      const inspection = await this.dependencies.commandRunner.run(
-        "launchctl",
-        ["print", target],
-        this.dependencies.commandTimeoutMs,
-      );
-      if (inspection.kind === "completed") {
-        shouldBootout = inspection.status === 0;
-      } else {
-        // If launchctl cannot tell us whether a timed-out bootstrap loaded the
-        // label, bootout is the only operation that can make cleanup certain.
-        shouldBootout = true;
-      }
-    }
+    const shouldBootout = bootstrapState !== "not-loaded";
     if (shouldBootout) {
+      // A failed or timed-out bootstrap may still have loaded the unique label.
+      // Bootout is the only race-free cleanup; an explicit not-loaded response
+      // is success when bootstrap completion was uncertain.
+      const absenceIsSuccess = bootstrapState === "uncertain";
       const bootout = await this.dependencies.commandRunner.run(
         "launchctl",
         ["bootout", target],
         this.dependencies.commandTimeoutMs,
       );
-      if (bootout.kind !== "completed" || bootout.status !== 0) {
+      if (
+        (bootout.kind !== "completed" || bootout.status !== 0)
+        && !(absenceIsSuccess && launchdTargetNotLoaded(bootout))
+      ) {
         failures.push(`bootout failed: ${commandFailureDetail(bootout)}`);
       }
     }
@@ -258,7 +241,7 @@ export function createNativeServiceAuthoritativeProbe(): NativeServiceAuthoritat
     ...common,
     fileSystem: nodeLaunchdProbeFileSystem,
     uid: userInfo().uid,
-    now: Date.now,
+    now: performance.now.bind(performance),
     sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
     probeTimeoutMs: defaultProbeTimeoutMs,
     pollIntervalMs: defaultPollIntervalMs,
@@ -280,13 +263,19 @@ export function systemdRunArguments(
     "--pipe",
     "--quiet",
     `--unit=${unitName}`,
+    "--property=RuntimeMaxSec=15s",
+    "--property=TimeoutStopSec=5s",
     ...Object.entries(request.environment).map(([key, value]) => `--setenv=${key}=${value}`),
     ...(request.workingDirectory === null ? [] : [`--working-directory=${request.workingDirectory}`]),
     "/usr/bin/env",
-    request.shell.executable,
+    escapeSystemdCommandExpansion(request.shell.executable),
     "-lc",
-    shellCommand,
+    escapeSystemdCommandExpansion(shellCommand),
   ];
+}
+
+function escapeSystemdCommandExpansion(value: string): string {
+  return value.replaceAll("$", () => "$$");
 }
 
 export function launchdProbePlist(
@@ -316,36 +305,63 @@ ${argumentsXml}
   </array>
 ${workingDirectoryXml}${environmentXml}  <key>RunAtLoad</key>
   <true/>
+  <key>HardResourceLimits</key>
+  <dict>
+    <key>FileSize</key>
+    <integer>${String(maxLaunchdProbeFileBytes)}</integer>
+  </dict>
 ${plistString("StandardOutPath", stdoutPath)}${plistString("StandardErrorPath", stderrPath)}</dict>
 </plist>
 `;
 }
 
-class SpawnProbeCommandRunner implements ProbeCommandRunner {
+export class SpawnProbeCommandRunner implements ProbeCommandRunner {
   public run(command: string, args: readonly string[], timeoutMs: number): Promise<ProbeCommandResult> {
     return new Promise((resolve) => {
       const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
       let stdout = "";
       let stderr = "";
+      let capturedBytes = 0;
       let spawnFailure: string | null = null;
-      let timedOut = false;
+      let settled = false;
+
+      const finish = (result: ProbeCommandResult, terminate: boolean): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        if (terminate) {
+          child.kill("SIGKILL");
+          child.stdout.destroy();
+          child.stderr.destroy();
+          child.unref();
+        }
+        resolve(result);
+      };
+      const capture = (stream: "stdout" | "stderr", chunk: string): void => {
+        if (settled) return;
+        const bytes = Buffer.byteLength(chunk);
+        if (capturedBytes + bytes > maxCapturedCommandOutputBytes) {
+          finish({ kind: "output-limit", stdout, stderr }, true);
+          return;
+        }
+        capturedBytes += bytes;
+        if (stream === "stdout") stdout += chunk;
+        else stderr += chunk;
+      };
+
       child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
-      child.stdout.on("data", (chunk: string) => { stdout += chunk; });
-      child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+      child.stdout.on("data", (chunk: string) => { capture("stdout", chunk); });
+      child.stderr.on("data", (chunk: string) => { capture("stderr", chunk); });
       child.on("error", (error) => { spawnFailure = error.message; });
       const timeout = setTimeout(() => {
-        timedOut = true;
-        child.kill("SIGKILL");
+        finish({ kind: "timeout", stdout, stderr }, true);
       }, timeoutMs);
       child.on("close", (status) => {
-        clearTimeout(timeout);
-        if (timedOut) {
-          resolve({ kind: "timeout", stdout, stderr });
-        } else if (spawnFailure !== null) {
-          resolve({ kind: "spawn-failure", message: spawnFailure, stdout, stderr });
+        if (spawnFailure !== null) {
+          finish({ kind: "spawn-failure", message: spawnFailure, stdout, stderr }, false);
         } else {
-          resolve({ kind: "completed", status: status ?? 1, stdout, stderr });
+          finish({ kind: "completed", status: status ?? 1, stdout, stderr }, false);
         }
       });
     });
@@ -354,40 +370,98 @@ class SpawnProbeCommandRunner implements ProbeCommandRunner {
 
 const nodeLaunchdProbeFileSystem: LaunchdProbeFileSystem = {
   createTemporaryDirectory: (prefix) => mkdtemp(prefix),
-  writeFile: (path, contents) => writeFile(path, contents, "utf8"),
-  readFile: (path) => readFile(path, "utf8"),
+  writeFile: (path, contents, mode) => writeFile(path, contents, { encoding: "utf8", mode }),
+  readOptionalFile: async (path) => {
+    try {
+      return await readFile(path, "utf8");
+    } catch (error: unknown) {
+      if (isNodeErrorWithCode(error, "ENOENT")) return null;
+      throw error;
+    }
+  },
   removeDirectory: (path) => rm(path, { recursive: true, force: true }),
 };
+
+function readOptionalFileBounded(
+  fileSystem: LaunchdProbeFileSystem,
+  path: string,
+  timeoutMs: number,
+): Promise<
+  | { kind: "read"; output: string | null }
+  | { kind: "read-failure"; error: unknown }
+  | { kind: "deadline" }
+> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result:
+      | { kind: "read"; output: string | null }
+      | { kind: "read-failure"; error: unknown }
+      | { kind: "deadline" }): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(result);
+    };
+    const timeout = setTimeout(() => { finish({ kind: "deadline" }); }, timeoutMs);
+    void fileSystem.readOptionalFile(path).then(
+      (output) => { finish({ kind: "read", output }); },
+      (error: unknown) => { finish({ kind: "read-failure", error }); },
+    );
+  });
+}
 
 function prerequisiteProbeCommand(
   shell: NativeServiceShellName,
   prerequisites: readonly NativeServicePrerequisite[],
   outputPrefix: string,
+  resultFiles?: { pendingPath: string; completedPath: string },
 ): string {
-  return prerequisites.map((prerequisite) => {
+  const markerPath = resultFiles?.pendingPath;
+  const checks = prerequisites.map((prerequisite) => {
     const check = nativeServicePrerequisiteShellCheck(shell, prerequisite);
     const encodedId = Buffer.from(prerequisite.id, "utf8").toString("base64");
-    const satisfied = markerCommand(shell, outputPrefix, encodedId, "satisfied");
-    const unsatisfied = markerCommand(shell, outputPrefix, encodedId, "unsatisfied");
+    const satisfied = markerCommand(shell, outputPrefix, encodedId, "satisfied", markerPath);
+    const unsatisfied = markerCommand(shell, outputPrefix, encodedId, "unsatisfied", markerPath);
     return `${check} >/dev/null 2>&1 && ${satisfied} || ${unsatisfied}`;
   }).join("; ") || ":";
+  if (resultFiles === undefined) return checks;
+  const pending = shellQuote(shell, resultFiles.pendingPath);
+  const completed = shellQuote(shell, resultFiles.completedPath);
+  return `printf '%s' '' > ${pending}; ${checks}; /bin/mv ${pending} ${completed}`;
 }
 
 export function nativeServicePrerequisiteShellCheck(shell: NativeServiceShellName, prerequisite: NativeServicePrerequisite): string {
   switch (prerequisite.kind) {
     case "command-available":
-      return `command -v ${shellQuote(shell, prerequisite.command)}`;
+      return externalExecutableShellCheck(shell, prerequisite.command);
     case "node-version": {
       const script = `const major=Number(process.versions.node.split('.')[0]);process.exit(major>=${String(prerequisite.minimumMajor)}?0:1)`;
-      return `node -e ${shellQuote(shell, script)}`;
+      return externalExecutableShellCheck(shell, "node", ["-e", script]);
     }
-    case "readable-file":
-      return `test -r ${shellQuote(shell, prerequisite.path)}`;
+    case "readable-file": {
+      const path = shellQuote(shell, prerequisite.path);
+      return `test -f ${path} && test -r ${path}`;
+    }
     case "package-scripts": {
       const script = "const p=require(process.argv[1]);const names=process.argv.slice(2);process.exit(names.every((name)=>typeof p.scripts?.[name]==='string')?0:1)";
-      return ["node", "-e", shellQuote(shell, script), shellQuote(shell, prerequisite.packageJsonPath), ...prerequisite.scripts.map((name) => shellQuote(shell, name))].join(" ");
+      return externalExecutableShellCheck(shell, "node", ["-e", script, prerequisite.packageJsonPath, ...prerequisite.scripts]);
     }
   }
+}
+
+function externalExecutableShellCheck(
+  shell: NativeServiceShellName,
+  command: string,
+  arguments_: readonly string[] = [],
+): string {
+  const quotedCommand = shellQuote(shell, command);
+  const quotedArguments = arguments_.map((argument) => shellQuote(shell, argument)).join(" ");
+  if (shell === "fish") {
+    const invocation = quotedArguments === "" ? "" : `; and $pi_web_probe_executable[1] ${quotedArguments}`;
+    return `set -l pi_web_probe_executable (command -v ${quotedCommand}); and test (count $pi_web_probe_executable) -eq 1; and string match -q '*/*' -- $pi_web_probe_executable[1]; and test -f $pi_web_probe_executable[1]; and test -x $pi_web_probe_executable[1]${invocation}`;
+  }
+  const invocation = quotedArguments === "" ? "" : ` && "$pi_web_probe_executable" ${quotedArguments}`;
+  return `pi_web_probe_executable=$(command -v ${quotedCommand}) && case "$pi_web_probe_executable" in */*) test -f "$pi_web_probe_executable" && test -x "$pi_web_probe_executable"${invocation};; *) false;; esac`;
 }
 
 function markerCommand(
@@ -395,8 +469,10 @@ function markerCommand(
   outputPrefix: string,
   encodedId: string,
   status: "satisfied" | "unsatisfied",
+  outputPath?: string,
 ): string {
-  return `printf '%s\\t%s\\t%s\\n' ${shellQuote(shell, outputPrefix)} ${shellQuote(shell, encodedId)} ${shellQuote(shell, status)}`;
+  const redirect = outputPath === undefined ? "" : ` >> ${shellQuote(shell, outputPath)}`;
+  return `printf '%s\\t%s\\t%s\\n' ${shellQuote(shell, outputPrefix)} ${shellQuote(shell, encodedId)} ${shellQuote(shell, status)}${redirect}`;
 }
 
 function parseProbeOutput(
@@ -440,11 +516,11 @@ function parseProbeOutput(
 function unsatisfiedDetail(prerequisite: NativeServicePrerequisite): string {
   switch (prerequisite.kind) {
     case "command-available":
-      return `${prerequisite.command} was not found in the native service environment.`;
+      return `${prerequisite.command} did not resolve to an external executable in the native service environment.`;
     case "node-version":
       return `node >= ${String(prerequisite.minimumMajor)} was not available in the native service environment.`;
     case "readable-file":
-      return `${prerequisite.path} was not readable in the native service environment.`;
+      return `${prerequisite.path} was not a readable regular file in the native service environment.`;
     case "package-scripts":
       return `${prerequisite.packageJsonPath} did not provide scripts ${prerequisite.scripts.join(", ")} in the native service environment.`;
   }
@@ -461,18 +537,9 @@ function safeUniqueId(value: string): string {
   return safe === "" ? "probe" : safe;
 }
 
-function launchdField(output: string, field: string): string | undefined {
-  return new RegExp(`^\\s*${escapeRegExp(field)}\\s*=\\s*(.+)$`, "mu").exec(output)?.[1]?.trim();
-}
-
-function launchdIntegerField(output: string, field: string): number | undefined {
-  const value = launchdField(output, field);
-  if (value === undefined || !/^-?\d+$/u.test(value)) return undefined;
-  return Number(value);
-}
-
-function escapeRegExp(value: string): string {
-  return value.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+function launchdTargetNotLoaded(result: ProbeCommandResult): boolean {
+  if (result.kind !== "completed" || result.status === 0) return false;
+  return /(?:could not find (?:specified )?service|service not found|no such process)/iu.test(`${result.stderr}\n${result.stdout}`);
 }
 
 function plistString(key: string, value: string, indent = "  "): string {
@@ -496,6 +563,7 @@ function commandInfrastructureFailure(action: string, result: ProbeCommandResult
 function commandFailureDetail(result: ProbeCommandResult): string {
   if (result.kind === "timeout") return "command timed out";
   if (result.kind === "spawn-failure") return result.message;
+  if (result.kind === "output-limit") return "command output exceeded the capture limit";
   return firstOutput(result.stderr, result.stdout, `exit status ${String(result.status)}`);
 }
 
@@ -516,4 +584,8 @@ function firstOutput(...values: string[]): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && error.code === code;
 }

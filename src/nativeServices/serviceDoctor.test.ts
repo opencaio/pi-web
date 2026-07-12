@@ -98,19 +98,119 @@ describe("installed native-service mode and definition inspection", () => {
     });
   });
 
+  it("reconstructs escaped systemd paths, substitutions, and line controls exactly", () => {
+    const plan = createDevelopmentNativeServicePlan({
+      backend: { kind: "systemd", label: "systemd" },
+      shell: {
+        name: "zsh",
+        executable: "/shell $HOME/%h/zsh",
+        source: "detected",
+        detectedExecutable: "/shell $HOME/%h/zsh",
+      },
+      environment: { PI_WEB_CONFIG: "/config/%h\nnext" },
+      workingDirectory: "/checkout %h\nnext",
+      packageJsonPath: "/checkout %h\nnext/package.json",
+    });
+
+    expect(inspectInstalledDevelopmentServiceInput(plan.backend, renderedDefinitions(plan))).toEqual({
+      ok: true,
+      value: {
+        backend: plan.backend,
+        shell: plan.shell,
+        environment: plan.services[0]?.environment,
+        workingDirectory: "/checkout %h\nnext",
+        packageJsonPath: "/checkout %h\nnext/package.json",
+      },
+    });
+  });
+
   it("inspects legacy systemd definitions without /usr/bin/env or quoted working directories", () => {
     const plan = developmentPlan("systemd");
     const definitions = renderedDefinitions(plan).map((definition) => ({
       ...definition,
       contents: definition.contents
         .replace("ExecStart=/usr/bin/env ", "ExecStart=")
-        .replace('WorkingDirectory="/checkout with space"', "WorkingDirectory=/checkout with space"),
+        .replace("WorkingDirectory=/checkout\\x20with\\x20space", "WorkingDirectory=/checkout with space"),
     }));
 
     expect(inspectInstalledDevelopmentServiceInput(plan.backend, definitions)).toMatchObject({
       ok: true,
       value: { workingDirectory: "/checkout with space" },
     });
+  });
+
+  it("rejects quoted systemd working directories that the manager treats as non-absolute", () => {
+    const plan = developmentPlan("systemd");
+    const definitions = renderedDefinitions(plan).map((definition) => ({
+      ...definition,
+      contents: definition.contents.replace(
+        "WorkingDirectory=/checkout\\x20with\\x20space",
+        'WorkingDirectory="/checkout with space"',
+      ),
+    }));
+
+    const inspection = inspectInstalledDevelopmentServiceInput(plan.backend, definitions);
+    expect(inspection.ok).toBe(false);
+    if (inspection.ok) throw new Error("Expected quoted working directory inspection to fail");
+    expect(inspection.message).toContain("invalid quoted working directory");
+  });
+
+  it("rejects unconsumed systemd environment syntax rather than checking a different context", () => {
+    const plan = developmentPlan("systemd");
+    const definitions = renderedDefinitions(plan).map((definition) => ({
+      ...definition,
+      contents: definition.contents.replace("[Service]\n", "[Service]\nEnvironment=PATH=/custom/bin\n"),
+    }));
+
+    const inspection = inspectInstalledDevelopmentServiceInput(plan.backend, definitions);
+    expect(inspection.ok).toBe(false);
+    if (inspection.ok) throw new Error("Expected systemd environment inspection to fail");
+    expect(inspection.message).toContain("environment entry");
+  });
+
+  it.each([
+    'Environment="PI_WEB_CONFIG=/config" "PATH=/broken"',
+    "EnvironmentFile=/tmp/pi-web.env",
+  ])("rejects noncanonical systemd environment context: %s", (directive) => {
+    const plan = developmentPlan("systemd");
+    const definitions = renderedDefinitions(plan).map((definition) => ({
+      ...definition,
+      contents: definition.contents.replace("[Service]\n", `[Service]\n${directive}\n`),
+    }));
+
+    expect(inspectInstalledDevelopmentServiceInput(plan.backend, definitions).ok).toBe(false);
+  });
+
+  it("rejects duplicate systemd ExecStart directives", () => {
+    const plan = developmentPlan("systemd");
+    const definitions = renderedDefinitions(plan).map((definition) => ({
+      ...definition,
+      contents: definition.contents.replace(
+        "Restart=no",
+        'ExecStart=/usr/bin/env "/bin/zsh" -lc "exec true"\nRestart=no',
+      ),
+    }));
+
+    const inspection = inspectInstalledDevelopmentServiceInput(plan.backend, definitions);
+    expect(inspection.ok).toBe(false);
+    if (inspection.ok) throw new Error("Expected duplicate ExecStart inspection to fail");
+    expect(inspection.message).toContain("exactly one recognized ExecStart");
+  });
+
+  it("rejects malformed launchd environment dictionaries rather than dropping entries", () => {
+    const plan = developmentPlan("launchd");
+    const definitions = renderedDefinitions(plan).map((definition) => ({
+      ...definition,
+      contents: definition.contents.replace(
+        "  </dict>\n  <key>RunAtLoad</key>",
+        "    <key>BROKEN</key>\n    <integer>1</integer>\n  </dict>\n  <key>RunAtLoad</key>",
+      ),
+    }));
+
+    const inspection = inspectInstalledDevelopmentServiceInput(plan.backend, definitions);
+    expect(inspection.ok).toBe(false);
+    if (inspection.ok) throw new Error("Expected launchd environment inspection to fail");
+    expect(inspection.message).toContain("environment dictionary");
   });
 
   it("rejects a modified development command rather than claiming to check the installed plan", () => {
@@ -168,6 +268,31 @@ describe("native-service doctor planning and reporting", () => {
     );
   });
 
+  it("does not recommend PATH changes for checkout metadata failures", async () => {
+    const plan = developmentPlan("systemd");
+    const inspected = inspectInstalledDevelopmentServiceInput(plan.backend, renderedDefinitions(plan));
+    if (!inspected.ok) throw new Error(inspected.message);
+    const result = await runNativeServiceDoctor(
+      { kind: "installed-development", input: inspected.value },
+      {
+        probe: {
+          run: (request) => Promise.resolve({
+            kind: "completed",
+            outcomes: request.prerequisites.map((prerequisite) => ({
+              prerequisiteId: prerequisite.id,
+              status: prerequisite.kind === "package-scripts" ? "unsatisfied" as const : "satisfied" as const,
+              detail: prerequisite.kind === "package-scripts" ? "scripts missing" : null,
+            })),
+          }),
+        },
+        fileExists: () => true,
+      },
+    );
+    const report = formatNativeServiceDoctorResult(result);
+
+    expect(report).toMatchObject({ ok: false, failureKind: "requirements", pathAdviceRecommended: false });
+  });
+
   it("labels a production check as prospective and reports manager-context requirements", async () => {
     const target: NativeServiceDoctorTarget = {
       kind: "prospective-production",
@@ -190,6 +315,22 @@ describe("native-service doctor planning and reporting", () => {
     ]));
   });
 
+  it("retains the installed production shell when resolution fails before a plan exists", async () => {
+    const result = await runNativeServiceDoctor(
+      { kind: "prospective-production", input: productionInput(), reason: "installed strategy is unknown" },
+      { probe: probeWithStatus("unsatisfied"), fileExists: () => false },
+    );
+    const report = formatNativeServiceDoctorResult(result);
+
+    expect(report).toMatchObject({
+      ok: false,
+      failureKind: "requirements",
+      plan: null,
+      adviceShell: shell,
+      pathAdviceRecommended: true,
+    });
+  });
+
   it("preserves configured overrides as unverified and does not probe arbitrary commands", async () => {
     let calls = 0;
     const result = await runNativeServiceDoctor(
@@ -201,7 +342,7 @@ describe("native-service doctor planning and reporting", () => {
     );
     const report = formatNativeServiceDoctorResult(result);
 
-    expect(calls).toBe(0);
+    expect(calls).toBe(1);
     expect(report.ok).toBe(true);
     expect(report.lines.join("\n")).toContain("does not execute arbitrary configured commands");
   });

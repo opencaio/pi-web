@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { installNativeServiceCandidate } from "./serviceInstall.js";
+import {
+  installNativeServiceCandidate,
+  nativeServiceInstallFailureNeedsPathAdvice,
+} from "./serviceInstall.js";
 import type {
   NativeServiceAuthoritativeProbe,
   NativeServicePlan,
@@ -76,6 +79,41 @@ describe("native service install orchestration", () => {
     expect(replaceServices).toHaveBeenCalledWith(expect.objectContaining({ mode: "production" }));
   });
 
+  it("validates manager and shell readiness without executing configured overrides", async () => {
+    const writeInitialConfig = vi.fn<() => Promise<void>>(() => Promise.resolve());
+    const replaceServices = vi.fn<() => Promise<void>>(() => Promise.resolve());
+    const requests: NativeServiceProbeRequest[] = [];
+    const configuredInput: ProductionNativeServicePlanInput = {
+      ...productionInput,
+      executables: {
+        sessiond: { ...productionInput.executables.sessiond, configuredCommand: "custom-sessiond --flag" },
+        web: { ...productionInput.executables.web, configuredCommand: "custom-web --flag" },
+      },
+    };
+
+    const result = await installNativeServiceCandidate(
+      { mode: "production", input: configuredInput },
+      {
+        probe: {
+          run: (request) => {
+            requests.push(request);
+            return Promise.resolve({ kind: "infrastructure-failure", reason: "manager", message: "manager unavailable" });
+          },
+        },
+        fileExists: () => false,
+        writeInitialConfig,
+        replaceServices,
+      },
+    );
+
+    expect(result).toMatchObject({ ok: false, failure: { kind: "plan-validation" } });
+    if (result.ok) throw new Error("Expected manager validation failure");
+    expect(nativeServiceInstallFailureNeedsPathAdvice(result.failure)).toBe(false);
+    expect(requests).toEqual([expect.objectContaining({ purpose: "plan-validation", prerequisites: [] })]);
+    expect(writeInitialConfig).not.toHaveBeenCalled();
+    expect(replaceServices).not.toHaveBeenCalled();
+  });
+
   it("does not make durable changes when exact plan requirements are unsatisfied", async () => {
     const writeInitialConfig = vi.fn<() => Promise<void>>(() => Promise.resolve());
     const replaceServices = vi.fn<() => Promise<void>>(() => Promise.resolve());
@@ -99,6 +137,7 @@ describe("native service install orchestration", () => {
     if (result.ok || result.failure.kind !== "plan-validation") throw new Error("Expected validation failure");
     expect(result.failure.failures).not.toHaveLength(0);
     expect(result.failure.failures.every((failure) => failure.kind === "prerequisite-unsatisfied")).toBe(true);
+    expect(nativeServiceInstallFailureNeedsPathAdvice(result.failure)).toBe(true);
     expect(writeInitialConfig).not.toHaveBeenCalled();
     expect(replaceServices).not.toHaveBeenCalled();
   });
@@ -135,6 +174,8 @@ describe("native service install orchestration", () => {
         }],
       },
     });
+    if (result.ok) throw new Error("Expected infrastructure failure");
+    expect(nativeServiceInstallFailureNeedsPathAdvice(result.failure)).toBe(false);
     expect(writeInitialConfig).not.toHaveBeenCalled();
     expect(replaceServices).not.toHaveBeenCalled();
   });

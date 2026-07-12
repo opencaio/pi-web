@@ -162,6 +162,7 @@ export interface DevelopmentNativeServicePlanInput {
 
 export interface NativeServicePlanDependencies {
   probe: NativeServiceAuthoritativeProbe;
+  /** Returns true only when the path exists and is a regular file. */
   fileExists(path: string): boolean;
 }
 
@@ -205,6 +206,10 @@ export type NativeServicePlanValidationFailure =
 export type NativeServicePlanValidation =
   | { ok: true }
   | { ok: false; failures: readonly NativeServicePlanValidationFailure[] };
+
+export function nativeServicePrerequisiteNeedsPathAdvice(prerequisite: NativeServicePrerequisite): boolean {
+  return prerequisite.kind === "command-available" || prerequisite.kind === "node-version";
+}
 
 export const nativeServiceManagerRefs: Readonly<Record<NativeServiceId, NativeServiceManagerRef>> = {
   sessiond: {
@@ -386,7 +391,6 @@ export function createDevelopmentNativeServicePlan(input: DevelopmentNativeServi
 export function planValidationProbeRequests(plan: NativeServicePlan): readonly NativeServiceProbeRequest[] {
   const requests: (Omit<NativeServiceProbeRequest, "prerequisites"> & { prerequisites: NativeServicePrerequisite[] })[] = [];
   for (const service of plan.services) {
-    if (service.prerequisites.length === 0) continue;
     const existing = requests.find((request) =>
       request.workingDirectory === service.workingDirectory
       && environmentsEqual(request.environment, service.environment));
@@ -558,7 +562,7 @@ function commandRequirement(serviceId: NativeServiceId, command: string): Native
     id: commandRequirementId(serviceId, command),
     kind: "command-available",
     command,
-    description: `${command} is available to the service shell`,
+    description: `${command} resolves to an external executable for the service shell`,
   };
 }
 
@@ -577,7 +581,7 @@ function readableFileRequirement(serviceId: NativeServiceId, path: string): Nati
     id: `${serviceId}.entrypoint`,
     kind: "readable-file",
     path,
-    description: `bundled entrypoint is readable: ${path}`,
+    description: `bundled entrypoint is a readable regular file: ${path}`,
   };
 }
 

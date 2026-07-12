@@ -1,6 +1,7 @@
 import { basename, join } from "node:path";
 import {
   createDevelopmentNativeServicePlan,
+  nativeServicePrerequisiteNeedsPathAdvice,
   resolveProductionNativeServicePlan,
   validateNativeServicePlan,
   type DevelopmentNativeServicePlanInput,
@@ -49,6 +50,7 @@ export type NativeServiceDoctorTarget =
 interface NativeServiceDoctorScope {
   kind: "installed-development" | "prospective-production";
   reason: string | null;
+  shell: NativeServiceShell;
 }
 
 export type NativeServiceDoctorResult =
@@ -73,6 +75,8 @@ export interface NativeServiceDoctorReport {
   failureKind: "none" | "requirements" | "infrastructure" | "inspection";
   lines: readonly string[];
   plan: NativeServicePlan | null;
+  adviceShell: NativeServiceShell | null;
+  pathAdviceRecommended: boolean;
   failedPrerequisites: readonly NativeServicePrerequisite[];
 }
 
@@ -153,8 +157,8 @@ export async function runNativeServiceDoctor(
   if (target.kind === "inspection-failure") return target;
 
   const scope: NativeServiceDoctorScope = target.kind === "installed-development"
-    ? { kind: target.kind, reason: null }
-    : { kind: target.kind, reason: target.reason };
+    ? { kind: target.kind, reason: null, shell: target.input.shell }
+    : { kind: target.kind, reason: target.reason, shell: target.input.shell };
   let plan: NativeServicePlan;
   if (target.kind === "installed-development") {
     plan = createDevelopmentNativeServicePlan(target.input);
@@ -180,6 +184,8 @@ export function formatNativeServiceDoctorResult(result: NativeServiceDoctorResul
         "  Run `pi-web install` or `pi-web install --dev` to replace mixed, partial, or outdated service definitions.",
       ],
       plan: null,
+      adviceShell: null,
+      pathAdviceRecommended: false,
       failedPrerequisites: [],
     };
   }
@@ -205,6 +211,9 @@ export function formatNativeServiceDoctorResult(result: NativeServiceDoctorResul
       failureKind: infrastructure ? "infrastructure" : "requirements",
       lines,
       plan: null,
+      adviceShell: result.scope.shell,
+      pathAdviceRecommended: !infrastructure
+        && result.failures.some((failure) => failure.kind === "executable-unavailable"),
       failedPrerequisites: [],
     };
   }
@@ -215,7 +224,15 @@ export function formatNativeServiceDoctorResult(result: NativeServiceDoctorResul
   }
   if (result.validation.ok) {
     lines.push("✓ All verifiable native-service plan requirements are satisfied in the service-manager context.");
-    return { ok: true, failureKind: "none", lines, plan: result.plan, failedPrerequisites: [] };
+    return {
+      ok: true,
+      failureKind: "none",
+      lines,
+      plan: result.plan,
+      adviceShell: result.plan.shell,
+      pathAdviceRecommended: false,
+      failedPrerequisites: [],
+    };
   }
 
   const failedPrerequisites: NativeServicePrerequisite[] = [];
@@ -236,6 +253,9 @@ export function formatNativeServiceDoctorResult(result: NativeServiceDoctorResul
     failureKind: infrastructure ? "infrastructure" : "requirements",
     lines,
     plan: result.plan,
+    adviceShell: result.plan.shell,
+    pathAdviceRecommended: !infrastructure
+      && failedPrerequisites.some(nativeServicePrerequisiteNeedsPathAdvice),
     failedPrerequisites,
   };
 }
@@ -275,33 +295,85 @@ function parseConsistentDefinitions(
   return { ok: true, value: parsed };
 }
 
+interface ParsedSystemdDirective {
+  name: string;
+  value: string;
+}
+
+function systemdServiceDirectives(contents: string): ParsedSystemdDirective[] | undefined {
+  const allowed = new Set(["Type", "WorkingDirectory", "Environment", "ExecStart", "Restart", "RestartSec"]);
+  const directives: ParsedSystemdDirective[] = [];
+  let inServiceSection = false;
+  let foundServiceSection = false;
+  for (const line of contents.split(/\r?\n/u)) {
+    const trimmed = line.trim();
+    if (/^\[[^\]]+\]$/u.test(trimmed)) {
+      inServiceSection = trimmed === "[Service]";
+      foundServiceSection ||= inServiceSection;
+      continue;
+    }
+    if (!inServiceSection || trimmed === "" || trimmed.startsWith("#") || trimmed.startsWith(";")) continue;
+    const match = /^\s*([A-Za-z][A-Za-z0-9]*)=(.*)$/u.exec(line);
+    const name = match?.[1];
+    const value = match?.[2];
+    if (name === undefined || value === undefined || !allowed.has(name)) return undefined;
+    directives.push({ name, value });
+  }
+  return foundServiceSection ? directives : undefined;
+}
+
 function parseSystemdDefinition(
   definition: InstalledNativeServiceDefinition,
 ): InstalledNativeServiceInspection<ParsedServiceDefinition> {
-  const execStart = /^ExecStart=(?:\/usr\/bin\/env )?(.+?) -lc (.+)$/mu.exec(definition.contents);
-  if (execStart?.[1] === undefined || execStart[2] === undefined) {
-    return { ok: false, message: `Installed ${definition.id} systemd unit has an unrecognized ExecStart.` };
+  const directives = systemdServiceDirectives(definition.contents);
+  if (directives === undefined) {
+    return { ok: false, message: `Installed ${definition.id} systemd unit has unrecognized service directives.` };
   }
-  const shell = installedShell(execStart[1]);
+  const execStarts = directives.filter((directive) => directive.name === "ExecStart");
+  const execStart = execStarts.length === 1
+    ? /^(?:\/usr\/bin\/env )?(.+?) -lc (.+)$/u.exec(execStarts[0]?.value ?? "")
+    : null;
+  if (execStart?.[1] === undefined || execStart[2] === undefined) {
+    return { ok: false, message: `Installed ${definition.id} systemd unit must have exactly one recognized ExecStart.` };
+  }
+  const shellExecutable = parseSystemdExecArgument(execStart[1]);
+  if (shellExecutable === undefined) {
+    return { ok: false, message: `Installed ${definition.id} systemd unit has an unrecognized login shell argument.` };
+  }
+  const shell = installedShell(shellExecutable);
   if (!shell.ok) return shell;
-  const shellCommand = parseShellQuotedValue(shell.value.name, execStart[2]);
+  const shellCommand = parseSystemdShellCommand(shell.value.name, execStart[2]);
   if (shellCommand === undefined) {
     return { ok: false, message: `Installed ${definition.id} systemd unit has an unrecognized shell command.` };
   }
 
   const environment: Record<string, string> = {};
-  for (const match of definition.contents.matchAll(/^Environment="((?:\\.|[^"])*)"$/gmu)) {
-    const assignment = systemdUnescape(match[1] ?? "");
-    const separator = assignment.indexOf("=");
-    if (separator <= 0) return { ok: false, message: `Installed ${definition.id} systemd unit has a malformed environment entry.` };
-    environment[assignment.slice(0, separator)] = assignment.slice(separator + 1);
+  for (const directive of directives.filter((item) => item.name === "Environment")) {
+    const rawValue = directive.value;
+    if (!/^"(?:\\.|[^"])*"$/u.test(rawValue)) {
+      return { ok: false, message: `Installed ${definition.id} systemd unit has an unrecognized environment entry.` };
+    }
+    const assignment = parseSystemdDirectiveValue(rawValue);
+    const separator = assignment?.indexOf("=") ?? -1;
+    const key = assignment?.slice(0, separator) ?? "";
+    if (separator <= 0 || Object.hasOwn(environment, key)) {
+      return { ok: false, message: `Installed ${definition.id} systemd unit has a malformed environment entry.` };
+    }
+    environment[key] = assignment?.slice(separator + 1) ?? "";
   }
 
-  const workingDirectoryMatch = /^WorkingDirectory=(.+)$/mu.exec(definition.contents);
-  const workingDirectory = workingDirectoryMatch?.[1] === undefined
+  const workingDirectories = directives.filter((directive) => directive.name === "WorkingDirectory");
+  if (workingDirectories.length > 1) {
+    return { ok: false, message: `Installed ${definition.id} systemd unit has duplicate working directories.` };
+  }
+  const rawWorkingDirectory = workingDirectories[0]?.value;
+  if (rawWorkingDirectory?.startsWith('"') === true || rawWorkingDirectory?.startsWith("'") === true) {
+    return { ok: false, message: `Installed ${definition.id} systemd unit has an invalid quoted working directory.` };
+  }
+  const workingDirectory = rawWorkingDirectory === undefined
     ? null
-    : parseSystemdValue(workingDirectoryMatch[1]);
-  if (workingDirectoryMatch !== null && workingDirectory === undefined) {
+    : parseSystemdDirectiveValue(rawWorkingDirectory);
+  if (workingDirectories.length === 1 && workingDirectory === undefined) {
     return { ok: false, message: `Installed ${definition.id} systemd unit has a malformed working directory.` };
   }
 
@@ -314,25 +386,42 @@ function parseSystemdDefinition(
 function parseLaunchdDefinition(
   definition: InstalledNativeServiceDefinition,
 ): InstalledNativeServiceInspection<ParsedServiceDefinition> {
-  const argumentsBlock = /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/u.exec(definition.contents)?.[1];
-  if (argumentsBlock === undefined) {
-    return { ok: false, message: `Installed ${definition.id} LaunchAgent has no ProgramArguments array.` };
-  }
-  const arguments_ = [...argumentsBlock.matchAll(/<string>([\s\S]*?)<\/string>/gu)].map((match) => xmlUnescape(match[1] ?? ""));
-  if (arguments_.length !== 4 || arguments_[0] !== "/usr/bin/env" || arguments_[2] !== "-lc") {
+  const argumentsMatches = [...definition.contents.matchAll(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/gu)];
+  const arguments_ = argumentsMatches.length === 1
+    ? parseXmlStringSequence(argumentsMatches[0]?.[1] ?? "")
+    : undefined;
+  if (arguments_?.length !== 4 || arguments_[0] !== "/usr/bin/env" || arguments_[2] !== "-lc") {
     return { ok: false, message: `Installed ${definition.id} LaunchAgent has unrecognized ProgramArguments.` };
   }
   const shell = installedShell(arguments_[1] ?? "");
   if (!shell.ok) return shell;
 
-  const environment: Record<string, string> = {};
-  const environmentBlock = /<key>EnvironmentVariables<\/key>\s*<dict>([\s\S]*?)<\/dict>/u.exec(definition.contents)?.[1];
-  if (environmentBlock !== undefined) {
-    for (const match of environmentBlock.matchAll(/<key>([\s\S]*?)<\/key>\s*<string>([\s\S]*?)<\/string>/gu)) {
-      environment[xmlUnescape(match[1] ?? "")] = xmlUnescape(match[2] ?? "");
-    }
+  const environmentMatches = [...definition.contents.matchAll(/<key>EnvironmentVariables<\/key>\s*<dict>([\s\S]*?)<\/dict>/gu)];
+  const environmentKeyCount = [...definition.contents.matchAll(/<key>EnvironmentVariables<\/key>/gu)].length;
+  if (environmentMatches.length > 1 || environmentKeyCount !== environmentMatches.length) {
+    return { ok: false, message: `Installed ${definition.id} LaunchAgent has a malformed environment dictionary.` };
   }
-  const workingDirectory = launchdString(definition.contents, "WorkingDirectory");
+  const environment = environmentMatches.length === 0
+    ? {}
+    : parseXmlStringDictionary(environmentMatches[0]?.[1] ?? "");
+  if (environment === undefined) {
+    return { ok: false, message: `Installed ${definition.id} LaunchAgent has a malformed environment dictionary.` };
+  }
+
+  const contentsWithoutEnvironment = environmentMatches[0]?.[0] === undefined
+    ? definition.contents
+    : definition.contents.replace(environmentMatches[0][0], "");
+  const workingDirectoryMatches = [...contentsWithoutEnvironment.matchAll(/<key>WorkingDirectory<\/key>\s*<string>([\s\S]*?)<\/string>/gu)];
+  const workingDirectoryKeyCount = [...contentsWithoutEnvironment.matchAll(/<key>WorkingDirectory<\/key>/gu)].length;
+  if (workingDirectoryMatches.length > 1 || workingDirectoryKeyCount !== workingDirectoryMatches.length) {
+    return { ok: false, message: `Installed ${definition.id} LaunchAgent has a malformed working directory.` };
+  }
+  const workingDirectory = workingDirectoryMatches[0]?.[1] === undefined
+    ? null
+    : xmlUnescapeStrict(workingDirectoryMatches[0][1]);
+  if (workingDirectoryMatches.length === 1 && workingDirectory === undefined) {
+    return { ok: false, message: `Installed ${definition.id} LaunchAgent has a malformed working directory.` };
+  }
 
   return {
     ok: true,
@@ -340,7 +429,7 @@ function parseLaunchdDefinition(
       id: definition.id,
       shell: shell.value,
       environment,
-      workingDirectory,
+      workingDirectory: workingDirectory ?? null,
       shellCommand: arguments_[3] ?? "",
     },
   };
@@ -357,31 +446,87 @@ function installedShell(executable: string): InstalledNativeServiceInspection<Na
   };
 }
 
-function parseSystemdValue(value: string): string | undefined {
-  if (!value.startsWith('"') && !value.endsWith('"')) return value;
-  if (!value.startsWith('"') || !value.endsWith('"')) return undefined;
-  return systemdUnescape(value.slice(1, -1));
+function parseSystemdExecArgument(value: string): string | undefined {
+  const decoded = parseSystemdEscapedValue(value);
+  return decoded === undefined ? undefined : decodeSystemdSubstitutions(decoded, true);
 }
 
-function systemdUnescape(value: string): string {
+function parseSystemdDirectiveValue(value: string): string | undefined {
+  const decoded = parseSystemdEscapedValue(value);
+  return decoded === undefined ? undefined : decodeSystemdSubstitutions(decoded, false);
+}
+
+function parseSystemdEscapedValue(value: string): string | undefined {
+  const quoted = value.startsWith('"') || value.endsWith('"');
+  if (quoted && (!value.startsWith('"') || !value.endsWith('"'))) return undefined;
+  return systemdUnescape(quoted ? value.slice(1, -1) : value);
+}
+
+function systemdUnescape(value: string): string | undefined {
   let result = "";
   for (let index = 0; index < value.length; index += 1) {
     const character = value[index];
-    if (character === "\\" && index + 1 < value.length) {
-      result += value[index + 1] ?? "";
-      index += 1;
-    } else {
+    if (character !== "\\") {
       result += character ?? "";
+      continue;
     }
+
+    const escape = value[index + 1];
+    if (escape === undefined) return undefined;
+    const simpleEscapes: Readonly<Record<string, string>> = {
+      "\\": "\\",
+      '"': '"',
+      "'": "'",
+      a: "\u0007",
+      b: "\b",
+      e: "\u001b",
+      f: "\f",
+      n: "\n",
+      r: "\r",
+      s: " ",
+      t: "\t",
+      v: "\v",
+    };
+    const simple = simpleEscapes[escape];
+    if (simple !== undefined) {
+      result += simple;
+      index += 1;
+      continue;
+    }
+
+    const length = escape === "x" ? 2 : escape === "u" ? 4 : escape === "U" ? 8 : 0;
+    if (length === 0) return undefined;
+    const encoded = value.slice(index + 2, index + 2 + length);
+    if (encoded.length !== length || !new RegExp(`^[0-9a-fA-F]{${String(length)}}$`, "u").test(encoded)) return undefined;
+    const codePoint = Number.parseInt(encoded, 16);
+    if (codePoint === 0 || codePoint > 0x10ffff) return undefined;
+    result += String.fromCodePoint(codePoint);
+    index += length + 1;
   }
   return result;
 }
 
-function parseShellQuotedValue(shell: NativeServiceShell["name"], value: string): string | undefined {
+function decodeSystemdSubstitutions(value: string, decodeDollars: boolean): string | undefined {
+  let result = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character !== "%" && !(decodeDollars && character === "$")) {
+      result += character ?? "";
+      continue;
+    }
+    if (value[index + 1] !== character) return undefined;
+    result += character;
+    index += 1;
+  }
+  return result;
+}
+
+function parseSystemdShellCommand(shell: NativeServiceShell["name"], value: string): string | undefined {
+  if (value.startsWith('"') || value.endsWith('"')) return parseSystemdExecArgument(value);
   if (!value.startsWith("'") || !value.endsWith("'")) return undefined;
   const inner = value.slice(1, -1);
-  if (shell === "fish") return fishSingleQuoteUnescape(inner);
-  return inner.replaceAll("'\\''", "'").replaceAll("$$", "$").replaceAll("%%", "%");
+  const unquoted = shell === "fish" ? fishSingleQuoteUnescape(inner) : inner.replaceAll("'\\''", "'");
+  return decodeSystemdSubstitutions(unquoted, true);
 }
 
 function fishSingleQuoteUnescape(value: string): string {
@@ -395,16 +540,38 @@ function fishSingleQuoteUnescape(value: string): string {
       result += character ?? "";
     }
   }
-  return result.replaceAll("$$", "$").replaceAll("%%", "%");
+  return result;
 }
 
-function launchdString(contents: string, key: string): string | null {
-  const escapedKey = key.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  const value = new RegExp(`<key>${escapedKey}<\\/key>\\s*<string>([\\s\\S]*?)<\\/string>`, "u").exec(contents)?.[1];
-  return value === undefined ? null : xmlUnescape(value);
+function parseXmlStringSequence(contents: string): string[] | undefined {
+  const values: string[] = [];
+  let cursor = 0;
+  for (const match of contents.matchAll(/<string>([\s\S]*?)<\/string>/gu)) {
+    if (contents.slice(cursor, match.index).trim() !== "") return undefined;
+    const value = xmlUnescapeStrict(match[1] ?? "");
+    if (value === undefined) return undefined;
+    values.push(value);
+    cursor = match.index + match[0].length;
+  }
+  return contents.slice(cursor).trim() === "" ? values : undefined;
 }
 
-function xmlUnescape(value: string): string {
+function parseXmlStringDictionary(contents: string): Record<string, string> | undefined {
+  const values: Record<string, string> = {};
+  let cursor = 0;
+  for (const match of contents.matchAll(/<key>([\s\S]*?)<\/key>\s*<string>([\s\S]*?)<\/string>/gu)) {
+    if (contents.slice(cursor, match.index).trim() !== "") return undefined;
+    const key = xmlUnescapeStrict(match[1] ?? "");
+    const value = xmlUnescapeStrict(match[2] ?? "");
+    if (key === undefined || value === undefined || Object.hasOwn(values, key)) return undefined;
+    values[key] = value;
+    cursor = match.index + match[0].length;
+  }
+  return contents.slice(cursor).trim() === "" ? values : undefined;
+}
+
+function xmlUnescapeStrict(value: string): string | undefined {
+  if (/[<>]/u.test(value) || /&(?!(?:apos|quot|gt|lt|amp);)/u.test(value)) return undefined;
   return value
     .replaceAll("&apos;", "'")
     .replaceAll("&quot;", '"')

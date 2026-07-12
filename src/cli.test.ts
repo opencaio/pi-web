@@ -7,6 +7,7 @@ import {
   doctorExitCode,
   isCliEntrypoint,
   launchdRuntimeDetails,
+  regularFileExists,
   serviceBackendForPlatform,
 } from "./cli.js";
 
@@ -51,6 +52,19 @@ describe("native-service doctor CLI contracts", () => {
     expect(doctorExitCode(false, true, true)).toBe(1);
     expect(doctorExitCode(true, false, true)).toBe(1);
     expect(doctorExitCode(true, true, false)).toBe(1);
+  });
+
+  it("accepts only regular files as bundled entrypoints", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-web-entrypoint-test-"));
+    try {
+      const file = join(dir, "entrypoint.js");
+      writeFileSync(file, "export {};\n");
+      expect(regularFileExists(file)).toBe(true);
+      expect(regularFileExists(dir)).toBe(false);
+      expect(regularFileExists(join(dir, "missing.js"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("surfaces launchd last exit code 127 in service status", () => {

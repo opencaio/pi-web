@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -10,6 +10,7 @@ import { packageVersion, printPiWebVersionReport } from "./piWebVersionReport.js
 import { checkNodePtyDarwinSpawnHelper, formatNodePtyDarwinSpawnHelperCheck } from "./server/diagnostics/nodePtySpawnHelper.js";
 import {
   installNativeServiceCandidate,
+  nativeServiceInstallFailureNeedsPathAdvice,
   type NativeServiceInstallCandidate,
   type NativeServiceInstallFailure,
 } from "./nativeServices/serviceInstall.js";
@@ -216,6 +217,10 @@ function packageRootPath(): string {
 
 function packageEntrypointPath(name: "server" | "sessiond"): string {
   return join(packageRootPath(), "dist", "server", name === "server" ? "index.js" : "sessiond.js");
+}
+
+export function regularFileExists(path: string): boolean {
+  return existsSync(path) && statSync(path).isFile();
 }
 
 function detectServiceShell(): NativeServiceShell {
@@ -660,14 +665,17 @@ async function install(args: string[]): Promise<void> {
   console.log(`Service shell: ${describeServiceShell()}`);
   const result = await installNativeServiceCandidate(candidate, {
     probe: createNativeServiceAuthoritativeProbe(),
-    fileExists: existsSync,
+    fileExists: regularFileExists,
     writeInitialConfig: () => writeInitialConfig(options, configPath),
     replaceServices: installNativeServices,
   });
   if (!result.ok) {
     printNativeServiceInstallFailure(result.failure);
-    printPathSetupAdvice();
+    if (nativeServiceInstallFailureNeedsPathAdvice(result.failure)) printPathSetupAdvice();
     throw new Error("Install preflight checks failed without changing config or services. Fix the failure above, then run `pi-web doctor` for more detail.");
+  }
+  for (const service of result.plan.services.filter((item) => item.strategy.kind === "configured-override")) {
+    console.log(`! ${service.description} uses a configured command override; preflight did not execute that arbitrary command.`);
   }
 
   console.log(`\nPI WEB ${options.mode} services are installed and starting.`);
@@ -893,7 +901,7 @@ function nativeServiceDoctorTarget(backend: ServiceBackend): NativeServiceDoctor
 async function printNativeServiceDoctorChecks(backend: ServiceBackend): Promise<NativeServiceDoctorReport> {
   const result = await runNativeServiceDoctor(nativeServiceDoctorTarget(backend), {
     probe: createNativeServiceAuthoritativeProbe(),
-    fileExists: existsSync,
+    fileExists: regularFileExists,
   });
   const report = formatNativeServiceDoctorResult(result);
   for (const line of report.lines) console.log(line);
@@ -994,11 +1002,11 @@ async function doctor(): Promise<void> {
   }
 
   const nativeServicePlanOk = nativeServiceReport?.ok ?? true;
-  const pathFailure = !generalReadinessOk || nativeServiceReport?.failureKind === "requirements";
+  const pathFailure = !generalReadinessOk || nativeServiceReport?.pathAdviceRecommended === true;
   if (pathFailure) {
     console.log("\nIf a command works in your terminal but fails in the service-manager check, compare the caller and manager contexts above.");
-    const adviceShell = nativeServiceReport?.failureKind === "requirements" && nativeServiceReport.plan !== null
-      ? nativeServiceReport.plan.shell
+    const adviceShell = nativeServiceReport?.pathAdviceRecommended === true && nativeServiceReport.adviceShell !== null
+      ? nativeServiceReport.adviceShell
       : detectServiceShell();
     printPathSetupAdvice(adviceShell);
   }

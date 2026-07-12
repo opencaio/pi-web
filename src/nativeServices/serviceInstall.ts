@@ -1,5 +1,6 @@
 import {
   createDevelopmentNativeServicePlan,
+  nativeServicePrerequisiteNeedsPathAdvice,
   resolveProductionNativeServicePlan,
   validateNativeServicePlan,
   type DevelopmentNativeServicePlanInput,
@@ -28,6 +29,16 @@ export type NativeServiceInstallFailure =
 export type NativeServiceInstallResult =
   | { ok: true; plan: NativeServicePlan }
   | { ok: false; failure: NativeServiceInstallFailure };
+
+export function nativeServiceInstallFailureNeedsPathAdvice(failure: NativeServiceInstallFailure): boolean {
+  if (failure.kind === "plan-resolution") {
+    return failure.failures.every((item) => item.kind === "executable-unavailable")
+      && failure.failures.length > 0;
+  }
+  return failure.failures.some((item) =>
+    item.kind === "prerequisite-unsatisfied"
+    && nativeServicePrerequisiteNeedsPathAdvice(item.prerequisite));
+}
 
 /**
  * Keeps preflight effects ahead of durable install effects. The authoritative

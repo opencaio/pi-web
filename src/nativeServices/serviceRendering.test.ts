@@ -34,10 +34,31 @@ describe("native service rendering", () => {
 
     expect(unit).toContain("Description=PI WEB UI dev server");
     expect(unit).toContain("After=pi-web-sessiond.service\nWants=pi-web-sessiond.service");
-    expect(unit).toContain('WorkingDirectory="/checkout with space"');
+    expect(unit).toContain("WorkingDirectory=/checkout\\x20with\\x20space");
     expect(unit).toContain('Environment="PI_WEB_CONFIG=/home/user/config with \\"quote\\".json"');
-    expect(unit).toContain("ExecStart=/usr/bin/env /bin/zsh -lc 'exec /usr/bin/env bash -c '\\''trap");
+    expect(unit).toContain('ExecStart=/usr/bin/env "/bin/zsh" -lc "exec /usr/bin/env bash -c \'trap \\"kill 0\\" EXIT;');
     expect(unit).toContain("Restart=no");
+  });
+
+  it("escapes systemd specifiers and line controls without changing directives", () => {
+    const plan = createDevelopmentNativeServicePlan({
+      backend: { kind: "systemd", label: "systemd" },
+      shell: {
+        name: "bash",
+        executable: "/shell $HOME/%h/bash",
+        source: "detected",
+        detectedExecutable: "/shell $HOME/%h/bash",
+      },
+      environment: { PI_WEB_CONFIG: "/config/%h\nEnvironment=INJECTED=yes" },
+      workingDirectory: "/checkout %h\nwith newline",
+      packageJsonPath: "/checkout/package.json",
+    });
+    const unit = renderSystemdUnit(plan, planService(plan, 0));
+
+    expect(unit).toContain("WorkingDirectory=/checkout\\x20%%h\\nwith\\x20newline");
+    expect(unit).toContain('Environment="PI_WEB_CONFIG=/config/%%h\\nEnvironment=INJECTED=yes"');
+    expect(unit).toContain('ExecStart=/usr/bin/env "/shell $$HOME/%%h/bash"');
+    expect(unit.match(/^Environment=/gmu)).toHaveLength(1);
   });
 
   it("renders launchd entirely from the canonical plan", () => {

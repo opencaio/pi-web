@@ -3,7 +3,6 @@ import type {
   NativeServiceId,
   NativeServicePlan,
   NativeServicePlanService,
-  NativeServiceShellName,
 } from "./servicePlan.js";
 
 export function renderSystemdUnit(
@@ -14,7 +13,7 @@ export function renderSystemdUnit(
   assertBackend(plan, "systemd");
   const workingDirectory = service.workingDirectory === null
     ? ""
-    : `WorkingDirectory=${systemdQuotedValue(service.workingDirectory)}\n`;
+    : `WorkingDirectory=${systemdPathValue(service.workingDirectory)}\n`;
   const restart = service.restart === "on-failure"
     ? "Restart=on-failure\nRestartSec=2\n"
     : "Restart=no\n";
@@ -22,7 +21,7 @@ export function renderSystemdUnit(
 Description=${service.description}
 ${systemdDependencyLine(plan, "After", service.after)}${systemdDependencyLine(plan, "Wants", service.wants)}[Service]
 Type=simple
-${workingDirectory}${systemdEnvironmentLines(service.environment)}ExecStart=/usr/bin/env ${plan.shell.executable} -lc ${systemdServiceShellQuote(plan.shell.name, service.shellCommand)}
+${workingDirectory}${systemdEnvironmentLines(service.environment)}ExecStart=/usr/bin/env ${systemdExecArgument(plan.shell.executable)} -lc ${systemdExecArgument(service.shellCommand)}
 ${restart}
 [Install]
 WantedBy=default.target
@@ -83,20 +82,37 @@ function systemdDependencyLine(
 
 function systemdEnvironmentLines(environment: Readonly<Record<string, string>>): string {
   return Object.entries(environment)
-    .map(([key, value]) => `Environment="${systemdEscape(key)}=${systemdEscape(value)}"\n`)
+    .map(([key, value]) => `Environment=${systemdQuotedDirectiveValue(`${key}=${value}`)}\n`)
     .join("");
 }
 
-function systemdServiceShellQuote(shell: NativeServiceShellName, value: string): string {
-  return shellQuote(shell, value.replaceAll("%", "%%").replaceAll("$", "$$"));
+function systemdExecArgument(value: string): string {
+  return `"${systemdEscape(value.replaceAll("%", "%%").replaceAll("$", () => "$$"), false)}"`;
 }
 
-function systemdQuotedValue(value: string): string {
-  return `"${systemdEscape(value)}"`;
+function systemdQuotedDirectiveValue(value: string): string {
+  return `"${systemdEscape(value.replaceAll("%", "%%"), false)}"`;
 }
 
-function systemdEscape(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+function systemdPathValue(value: string): string {
+  return systemdEscape(value.replaceAll("%", "%%"), true);
+}
+
+function systemdEscape(value: string, escapeSpaces: boolean): string {
+  let escaped = "";
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0;
+    if (character === "\\") escaped += "\\\\";
+    else if (character === '"') escaped += escapeSpaces ? "\\x22" : '\\"';
+    else if (character === "'" && escapeSpaces) escaped += "\\x27";
+    else if (character === " " && escapeSpaces) escaped += "\\x20";
+    else if (character === "\n") escaped += "\\n";
+    else if (character === "\r") escaped += "\\r";
+    else if (character === "\t") escaped += "\\t";
+    else if (code < 0x20 || code === 0x7f) escaped += `\\x${code.toString(16).padStart(2, "0")}`;
+    else escaped += character;
+  }
+  return escaped;
 }
 
 function plistProgramArguments(arguments_: readonly string[]): string {
@@ -111,12 +127,6 @@ function plistEnvironment(environment: Readonly<Record<string, string>>): string
 
 function plistString(key: string, value: string, indent = "  "): string {
   return `${indent}<key>${xmlEscape(key)}</key>\n${indent}<string>${xmlEscape(value)}</string>\n`;
-}
-
-function shellQuote(shell: NativeServiceShellName, value: string): string {
-  return shell === "fish"
-    ? `'${value.replaceAll("\\", "\\\\").replaceAll("'", "\\'")}'`
-    : `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function xmlEscape(value: string): string {

@@ -164,7 +164,14 @@ describe("production native service planning", () => {
         prerequisites: [],
       },
     ]);
-    expect(planValidationProbeRequests(resolution.plan)).toEqual([]);
+    expect(planValidationProbeRequests(resolution.plan)).toEqual([{
+      purpose: "plan-validation",
+      backend,
+      shell,
+      environment: { PI_WEB_CONFIG: "/home/user/.config/pi-web/config.json" },
+      workingDirectory: null,
+      prerequisites: [],
+    }]);
   });
 
   it("falls back per service to bundled entrypoints when named commands are unavailable", async () => {
