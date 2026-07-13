@@ -525,24 +525,35 @@
               <h3><code>subsessions</code></h3>
               <p>
                 Boolean. Beta. Controls whether agents receive the tracked-subsession tools:
-                <code>spawn_subsession</code>, <code>list_subsessions</code>, <code>check_subsession</code>, and
-                <code>read_subsession</code>. Defaults to <code>false</code> and also requires <code>spawnSessions</code>
-                to be enabled.
+                <code>spawn_subsession</code>, <code>list_subsessions</code>, <code>check_subsession</code>,
+                <code>read_subsession</code>, and <code>yield_to_subsessions</code>. Defaults to <code>false</code> and also
+                requires <code>spawnSessions</code> to be enabled.
               </p>
               <p>
-                Tracked subsessions let an agent delegate work to child sessions, receive a notification when each child
-                stops working, and inspect their status and transcripts. Calling <code>spawn_subsession</code> returns
-                immediately. The parent can continue independent work while treating every child whose result it needs
-                as pending. Before producing work that depends on those results, the parent reaches a join point and
-                yields until every required child has sent a completion notice.
+                Tracked subsessions are join-oriented. Calling <code>spawn_subsession</code> returns immediately, so the
+                parent can continue independent work while the child runs. Work whose result the parent does not need to
+                join belongs in the fire-and-forget <code>spawn_session</code> tool instead.
               </p>
               <p>
-                A completion notice wakes an idle parent. If the parent is busy, the notice queues until the current
-                turn ends rather than interrupting in-flight work. For multiple required children, each notice resolves
-                one pending child; after processing it, the parent yields again if another required child is pending.
-                <code>list_subsessions</code>, <code>check_subsession</code>, and <code>read_subsession</code> provide
-                on-demand status and transcript inspection for deliberate progress checks or recovery. Completion
-                notifications, rather than polling these tools, are the normal synchronization mechanism.
+                At a join point, after finishing its independent work, the parent calls
+                <code>yield_to_subsessions</code> alone as the final action in its tool batch. Pi ends a tool batch early
+                only when every result in that batch is terminating. If any tracked child is still working, the action
+                ends the current agent run so the parent becomes idle. If none are working, it does not end the run and
+                clearly reports that there is nothing to wait for.
+              </p>
+              <p>
+                A completion notice wakes an idle parent or queues behind in-flight work. Each notice lists any other
+                tracked children still working, so the parent can continue work or call
+                <code>yield_to_subsessions</code> again at the next join point. Further notices arrive automatically; do
+                not poll.
+              </p>
+              <p>
+                <code>list_subsessions</code>, <code>check_subsession</code>, and <code>read_subsession</code> never yield
+                or change control flow. They are for deliberate inspection or recovery, not completion polling. While a
+                child works, agent-facing <code>check_subsession</code> and <code>read_subsession</code> withhold partial
+                output and direct the parent to continue independent work or yield at the join point. Output becomes
+                available when the child stops. In notices and inspection results, PI WEB guidance precedes a labeled
+                marker and the child output or transcript always comes last.
               </p>
               <p>
                 In <strong>Settings → Session daemon</strong>, these keys are saved on the selected machine. Restart the

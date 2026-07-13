@@ -181,11 +181,15 @@ The per-request size limit is still controlled by `maxUploadBytes` / `PI_WEB_MAX
 
 `spawnSessions` controls whether agents receive the `spawn_session` tool. It defaults to `true`; set it to `false` if you do not want an agent to start independent PI WEB sessions.
 
-`subsessions` is beta and controls whether agents receive the tracked-subsession tools: `spawn_subsession`, `list_subsessions`, `check_subsession`, and `read_subsession`. It defaults to `false` and also requires `spawnSessions` to be enabled.
+`subsessions` is beta and controls whether agents receive the tracked-subsession tools: `spawn_subsession`, `list_subsessions`, `check_subsession`, `read_subsession`, and `yield_to_subsessions`. It defaults to `false` and also requires `spawnSessions` to be enabled.
 
-Tracked subsessions let an agent delegate work to child sessions, receive a notification when each child stops working, and inspect their status and transcripts. Calling `spawn_subsession` returns immediately. The parent can continue independent work while treating every child whose result it needs as pending. Before producing work that depends on those results, the parent reaches a join point and yields until every required child has sent a completion notice.
+Tracked subsessions are join-oriented. Calling `spawn_subsession` returns immediately, so the parent can continue independent work while the child runs. Work whose result the parent does not need to join belongs in the fire-and-forget `spawn_session` tool instead.
 
-A completion notice wakes an idle parent. If the parent is busy, the notice queues until the current turn ends rather than interrupting in-flight work. For multiple required children, each notice resolves one pending child; after processing it, the parent yields again if another required child is pending. `list_subsessions`, `check_subsession`, and `read_subsession` provide on-demand status and transcript inspection for deliberate progress checks or recovery. Completion notifications, rather than polling these tools, are the normal synchronization mechanism.
+At a join point, after finishing its independent work, the parent calls `yield_to_subsessions` alone as the final action in its tool batch. Pi ends a tool batch early only when every result in that batch is terminating. If any tracked child is still working, the action ends the current agent run so the parent becomes idle. If none are working, it does not end the run and clearly reports that there is nothing to wait for.
+
+A completion notice wakes an idle parent or queues behind in-flight work. Each notice lists any other tracked children still working, so the parent can continue work or call `yield_to_subsessions` again at the next join point. Further notices arrive automatically; do not poll.
+
+`list_subsessions`, `check_subsession`, and `read_subsession` never yield or change control flow. They are for deliberate inspection or recovery, not completion polling. While a child works, agent-facing `check_subsession` and `read_subsession` withhold partial output and direct the parent to continue independent work or yield at the join point. Output becomes available when the child stops. In notices and inspection results, PI WEB guidance precedes a labeled marker and the child output or transcript always comes last.
 
 In **Settings → Session daemon**, these keys are saved on the selected machine. Restart the session daemon on that machine after changing them.
 
