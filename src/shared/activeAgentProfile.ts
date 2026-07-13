@@ -2,6 +2,15 @@ import type { ActiveAgentProfileDescriptor } from "./apiTypes.js";
 
 export const ACTIVE_AGENT_PROFILE_SCHEMA_VERSION = 1 as const;
 
+export function isPiCompanionCommand(command: string): boolean {
+  const name = command.split(/[\\/]/u).at(-1)?.toLowerCase() ?? command.toLowerCase();
+  return name.replace(/(?:\.[cm]?js|\.exe|\.cmd)$/iu, "") === "pi";
+}
+
+export function usesPiCodingAgentStateCompatibility(command: string): boolean {
+  return !command.includes("/") && !command.includes("\\") && isPiCompanionCommand(command);
+}
+
 const ACTIVE_AGENT_PROFILE_FIELDS = new Set([
   "schemaVersion",
   "revision",

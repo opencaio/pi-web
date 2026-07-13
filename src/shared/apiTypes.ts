@@ -11,6 +11,7 @@ export const PI_WEB_CAPABILITIES = {
   workspaceFileSuggestions: "workspace.fileSuggestions",
   piPackagesManage: "piPackages.manage",
   selectedMachineSettings: "settings.selectedMachine",
+  agentProfileConfig: "settings.agentProfile",
 } as const;
 
 export type PiWebCapability = typeof PI_WEB_CAPABILITIES[keyof typeof PI_WEB_CAPABILITIES];
@@ -149,6 +150,8 @@ export interface PiPackageMutationResponse extends PiPackagesResponse {
   removed?: boolean;
 }
 
+export type PiWebAgentDirEnvSource = "pi-web" | "pi-compatibility";
+
 export interface PiWebConfigEnvOverrides {
   host: boolean;
   port: boolean;
@@ -157,6 +160,8 @@ export interface PiWebConfigEnvOverrides {
   subsessions: boolean;
   agentCommand: boolean;
   agentDir: boolean;
+  /** The configured directory environment source, even when Pi compatibility is inactive for the desired command. */
+  agentDirSource?: PiWebAgentDirEnvSource;
   agentSessionDir: boolean;
 }
 

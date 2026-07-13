@@ -1,8 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
-import type { PiWebConfigValues } from "./shared/apiTypes.js";
+import type { PiWebAgentDirEnvSource, PiWebConfigValues } from "./shared/apiTypes.js";
+import { isPiCompanionCommand, usesPiCodingAgentStateCompatibility } from "./shared/activeAgentProfile.js";
 import { isPiWebPluginId, piWebPluginIdPattern } from "./shared/pluginIds.js";
+
+export { isPiCompanionCommand };
 
 export type PiWebConfig = PiWebConfigValues;
 
@@ -61,7 +64,7 @@ export interface EffectivePiWebAgentConfig {
 
 export function effectiveAgentConfig(env: NodeJS.ProcessEnv = process.env, config: Pick<PiWebConfig, "agent"> = {}): EffectivePiWebAgentConfig {
   const command = parseAgentCommand(envValue(env, PI_WEB_AGENT_COMMAND_ENV) ?? config.agent?.command ?? DEFAULT_AGENT_COMMAND, "agent.command", "environment", "current");
-  const configuredDir = envValue(env, PI_WEB_AGENT_DIR_ENV) ?? (usesDefaultPiStatePolicy(command) ? envValue(env, PI_CODING_AGENT_DIR_ENV) : undefined) ?? config.agent?.dir ?? defaultAgentDirForCommand(command, env);
+  const configuredDir = envValue(env, PI_WEB_AGENT_DIR_ENV) ?? (usesPiCodingAgentStateCompatibility(command) ? envValue(env, PI_CODING_AGENT_DIR_ENV) : undefined) ?? config.agent?.dir ?? defaultAgentDirForCommand(command, env);
   return {
     command,
     dir: resolveAgentDirPath(configuredDir, env, "agent.dir", "environment"),
@@ -72,12 +75,19 @@ export function effectiveAgentConfig(env: NodeJS.ProcessEnv = process.env, confi
 export function agentSessionDirEnvKeys(command = DEFAULT_AGENT_COMMAND): string[] {
   return uniqueStrings([
     PI_WEB_AGENT_SESSION_DIR_ENV,
-    ...(usesDefaultPiStatePolicy(command) ? [PI_CODING_AGENT_SESSION_DIR_ENV] : []),
+    ...(usesPiCodingAgentStateCompatibility(command) ? [PI_CODING_AGENT_SESSION_DIR_ENV] : []),
   ]);
 }
 
+export function agentDirEnvSource(env: NodeJS.ProcessEnv): PiWebAgentDirEnvSource | undefined {
+  if (isEnvSet(env[PI_WEB_AGENT_DIR_ENV])) return "pi-web";
+  if (isEnvSet(env[PI_CODING_AGENT_DIR_ENV])) return "pi-compatibility";
+  return undefined;
+}
+
 export function hasAgentDirEnvOverride(env: NodeJS.ProcessEnv, command = DEFAULT_AGENT_COMMAND): boolean {
-  return isEnvSet(env[PI_WEB_AGENT_DIR_ENV]) || (usesDefaultPiStatePolicy(command) && isEnvSet(env[PI_CODING_AGENT_DIR_ENV]));
+  const source = agentDirEnvSource(env);
+  return source === "pi-web" || (source === "pi-compatibility" && usesPiCodingAgentStateCompatibility(command));
 }
 
 export function hasAgentSessionDirEnvOverride(env: NodeJS.ProcessEnv, command = DEFAULT_AGENT_COMMAND): boolean {
@@ -391,17 +401,8 @@ function expandHomePath(value: string, env: NodeJS.ProcessEnv): string {
 }
 
 function defaultAgentDirForCommand(command: string, env: NodeJS.ProcessEnv): string {
-  if (usesDefaultPiStatePolicy(command)) return expandHomePath("~/.pi/agent", env);
+  if (usesPiCodingAgentStateCompatibility(command)) return expandHomePath("~/.pi/agent", env);
   throw new Error(`PI WEB config agent.dir or ${PI_WEB_AGENT_DIR_ENV} is required when agent.command is ${JSON.stringify(command)}`);
-}
-
-function usesDefaultPiStatePolicy(command: string): boolean {
-  return !command.includes("/") && !command.includes("\\") && isPiCompanionCommand(command);
-}
-
-export function isPiCompanionCommand(command: string): boolean {
-  const name = command.split(/[\\/]/u).at(-1)?.toLowerCase() ?? command.toLowerCase();
-  return name.replace(/(?:\.[cm]?js|\.exe|\.cmd)$/iu, "") === DEFAULT_AGENT_COMMAND;
 }
 
 function envValue(env: NodeJS.ProcessEnv, key: string): string | undefined {

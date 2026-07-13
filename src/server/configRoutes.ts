@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, parseAgentConfig, parseUploadsConfig, resolveEffectivePiWebConfig, savePiWebConfig, type AgentPathHost, type LoadOptions, type PiWebConfig } from "../config.js";
-import type { PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues } from "../shared/apiTypes.js";
+import { agentDirEnvSource, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, parseAgentConfig, parseUploadsConfig, resolveEffectivePiWebConfig, savePiWebConfig, type AgentPathHost, type LoadOptions, type PiWebConfig } from "../config.js";
+import type { PiWebAgentDirEnvSource, PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues } from "../shared/apiTypes.js";
 import { isPiWebPluginId } from "../shared/pluginIds.js";
 
 export interface PiWebConfigService {
@@ -243,6 +243,7 @@ function parsePiWebConfigEnvOverridesResponse(value: unknown, source: string): P
     subsessions: requireResponseBoolean(record, "subsessions", source),
     agentCommand: optionalResponseBoolean(record, "agentCommand", source) ?? false,
     agentDir: optionalResponseBoolean(record, "agentDir", source) ?? false,
+    ...optionalAgentDirSource(record, source),
     agentSessionDir: optionalResponseBoolean(record, "agentSessionDir", source) ?? false,
   };
 }
@@ -271,8 +272,16 @@ function optionalResponseBoolean(record: Record<string, unknown>, key: string, s
   return value;
 }
 
+function optionalAgentDirSource(record: Record<string, unknown>, source: string): { agentDirSource?: PiWebAgentDirEnvSource } {
+  const value = record["agentDirSource"];
+  if (value === undefined) return {};
+  if (value !== "pi-web" && value !== "pi-compatibility") throw new Error(`${source} field must be a valid agent directory source: agentDirSource`);
+  return { agentDirSource: value };
+}
+
 function piWebConfigEnvOverrides(env: NodeJS.ProcessEnv, config: PiWebConfig = {}): PiWebConfigEnvOverrides {
   const command = config.agent?.command;
+  const dirEnvSource = agentDirEnvSource(env);
   return {
     host: isEnvSet(env["PI_WEB_HOST"]),
     port: isEnvSet(env["PI_WEB_PORT"]) || isEnvSet(env["PORT"]),
@@ -281,6 +290,7 @@ function piWebConfigEnvOverrides(env: NodeJS.ProcessEnv, config: PiWebConfig = {
     subsessions: isEnvSet(env["PI_WEB_SUBSESSIONS"]),
     agentCommand: isEnvSet(env["PI_WEB_AGENT_COMMAND"]),
     agentDir: hasAgentDirEnvOverride(env, command),
+    ...(dirEnvSource === undefined ? {} : { agentDirSource: dirEnvSource }),
     agentSessionDir: hasAgentSessionDirEnvOverride(env, command),
   };
 }

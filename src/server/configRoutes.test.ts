@@ -202,6 +202,23 @@ describe("config routes", () => {
     expect(parsed.envOverrides).toMatchObject({ agentCommand: false, agentDir: false, agentSessionDir: false });
   });
 
+  it("retains the agent directory environment source across federation responses", () => {
+    const parsed = parsePiWebConfigResponseBody({
+      ...responseFor({}, false),
+      envOverrides: {
+        ...responseFor({}, false).envOverrides,
+        agentDir: true,
+        agentDirSource: "pi-compatibility",
+      },
+    });
+
+    expect(parsed.envOverrides).toMatchObject({ agentDir: true, agentDirSource: "pi-compatibility" });
+    expect(() => parsePiWebConfigResponseBody({
+      ...responseFor({}, false),
+      envOverrides: { ...responseFor({}, false).envOverrides, agentDirSource: "future-source" },
+    })).toThrow("valid agent directory source");
+  });
+
   it("rejects unsafe local selected-machine config keys before writing", async () => {
     savedConfig = fullConfig();
 

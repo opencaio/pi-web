@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_UPLOADS_FOLDER, agentSessionDirEnvKeys, effectiveAgentConfig, effectivePiWebConfig, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, maxUploadBytes, savePiWebConfig, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
+import { DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_UPLOADS_FOLDER, agentDirEnvSource, agentSessionDirEnvKeys, effectiveAgentConfig, effectivePiWebConfig, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, maxUploadBytes, savePiWebConfig, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
 
 let tempDir: string;
 let configPath: string;
@@ -135,22 +135,30 @@ describe("PI WEB config persistence", () => {
   });
 
   it("uses explicit PI WEB agent directory env precedence", () => {
-    expect(effectiveAgentConfig({
+    const env = {
       PI_WEB_AGENT_COMMAND: "acme-agent",
       PI_WEB_AGENT_DIR: join(tempDir, "web-env-agent"),
       PI_CODING_AGENT_DIR: join(tempDir, "pi-env-agent"),
-    }, { agent: { command: "pi", dir: join(tempDir, "config-agent") } })).toMatchObject({
+    };
+    expect(effectiveAgentConfig(env, { agent: { command: "pi", dir: join(tempDir, "config-agent") } })).toMatchObject({
       command: "acme-agent",
       dir: join(tempDir, "web-env-agent"),
     });
+    expect(agentDirEnvSource(env)).toBe("pi-web");
   });
 
   it("keeps legacy Pi env directory overrides scoped to the canonical Pi command", () => {
     const legacyDir = join(tempDir, "pi-env-agent");
-    expect(effectiveAgentConfig({ PI_CODING_AGENT_DIR: legacyDir }, { agent: { dir: join(tempDir, "config-agent") } })).toMatchObject({ dir: legacyDir });
+    const alternateDir = join(tempDir, "alternate-agent");
+    const env = { PI_CODING_AGENT_DIR: legacyDir };
+    expect(effectiveAgentConfig(env, { agent: { dir: join(tempDir, "config-agent") } })).toMatchObject({ dir: legacyDir });
+    expect(effectiveAgentConfig(env, { agent: { command: "acme-agent", dir: alternateDir } })).toMatchObject({ command: "acme-agent", dir: alternateDir });
+    expect(agentDirEnvSource(env)).toBe("pi-compatibility");
+    expect(hasAgentDirEnvOverride(env, "pi")).toBe(true);
+    expect(hasAgentDirEnvOverride(env, "acme-agent")).toBe(false);
 
     for (const command of ["acme-agent", join(tempDir, "bin", "pi")]) {
-      expect(() => effectiveAgentConfig({ PI_CODING_AGENT_DIR: legacyDir }, { agent: { command } }))
+      expect(() => effectiveAgentConfig(env, { agent: { command } }))
         .toThrow(`PI WEB config agent.dir or PI_WEB_AGENT_DIR is required when agent.command is ${JSON.stringify(command)}`);
     }
   });
