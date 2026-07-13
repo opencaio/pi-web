@@ -3,6 +3,13 @@ export interface AppUrlContext {
   documentBaseUrl: string;
 }
 
+/**
+ * Resolve a PI WEB-owned reference at a browser boundary.
+ *
+ * Core callers keep paths application-relative (no leading slash), encode every dynamic path segment,
+ * and resolve exactly once. Leading slashes are accepted only for existing plugin-manifest compatibility
+ * and mean the application root rather than the origin root.
+ */
 export function resolveAppUrl(path: string, context: AppUrlContext = browserAppUrlContext()): string {
   const applicationBaseUrl = new URL(context.viteBaseUrl, context.documentBaseUrl);
   return new URL(appRelativePath(path), applicationBaseUrl).toString();

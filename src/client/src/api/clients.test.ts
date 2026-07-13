@@ -268,6 +268,17 @@ describe("machine-scoped file suggestion API", () => {
   });
 });
 
+describe("machine-scoped workspace API", () => {
+  it("keeps project ids in one encoded route segment when listing workspaces", async () => {
+    const fetchMock = stubJsonFetch([]);
+
+    await workspacesApi.workspaces("../p /?", "remote a");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/remote%20a/projects/..%2Fp%20%2F%3F/workspaces");
+  });
+});
+
 describe("machine-scoped terminal command-run API", () => {
   it("deletes workspaces through the selected machine scope", async () => {
     const fetchMock = stubJsonFetch(commandRun);
