@@ -14,7 +14,8 @@ import { WorkspaceService } from "./workspaces/workspaceService.js";
 import type { PiPackageService } from "./piPackageService.js";
 import type { SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
 import { PI_WEB_CAPABILITIES } from "../shared/capabilities.js";
-import type { PiPackageInfo, PiWebConfigResponse, PiWebConfigValues } from "../shared/apiTypes.js";
+import type { ActiveAgentProfileDescriptor, PiPackageInfo, PiWebConfigResponse, PiWebConfigValues } from "../shared/apiTypes.js";
+import type { SessionDaemonAgentProfileResult } from "../sessiond/sessionDaemonClient.js";
 
 interface AppTestContext {
   readonly app: FastifyInstance;
@@ -24,6 +25,7 @@ interface AppTestContext {
   readonly sessionDaemonRequests: CapturedSessionDaemonRequest[];
   readonly piPackageRequests: CapturedPiPackageRequest[];
   piWebConfig: PiWebConfigValues;
+  agentProfileResult: SessionDaemonAgentProfileResult;
 }
 
 let app: FastifyInstance | undefined;
@@ -33,6 +35,7 @@ let remoteClient: MachineClient | undefined;
 let sessionDaemonRequests: CapturedSessionDaemonRequest[] = [];
 let piPackageRequests: CapturedPiPackageRequest[] = [];
 let piWebConfig: PiWebConfigValues = {};
+let agentProfileResult: SessionDaemonAgentProfileResult = { status: "invalid", error: "App test harness was not initialized" };
 
 export const appTestContext: AppTestContext = {
   get app() {
@@ -65,6 +68,12 @@ export const appTestContext: AppTestContext = {
   set piWebConfig(config) {
     piWebConfig = config;
   },
+  get agentProfileResult() {
+    return agentProfileResult;
+  },
+  set agentProfileResult(result) {
+    agentProfileResult = result;
+  },
 };
 
 export function registerAppTestHooks(): void {
@@ -75,6 +84,7 @@ export function registerAppTestHooks(): void {
     sessionDaemonRequests = [];
     piPackageRequests = [];
     piWebConfig = {};
+    agentProfileResult = { status: "available", profile: appTestAgentProfile(join(tempDir, "agent")) };
     app = await buildApp({
       projects: new ProjectService(new ProjectStore(join(tempDir, "projects.json"))),
       workspaces: new WorkspaceService(),
@@ -95,6 +105,7 @@ export function registerAppTestHooks(): void {
         }),
       }),
       sessionDaemon: fakeSessionDaemon(),
+      agentProfileProvider: { getActiveAgentProfile: () => Promise.resolve(agentProfileResult) },
       config: fakeConfigService(),
       piPackages: fakePiPackageService(),
       piWebPlugins: {
@@ -117,6 +128,7 @@ export function registerAppTestHooks(): void {
     sessionDaemonRequests = [];
     piPackageRequests = [];
     piWebConfig = {};
+    agentProfileResult = { status: "invalid", error: "App test harness was not initialized" };
 
     if (appToClose !== undefined) await appToClose.close();
     if (tempDirToRemove !== undefined) await rm(tempDirToRemove, { recursive: true, force: true });
@@ -149,6 +161,16 @@ function fakeConfigService() {
       piWebConfig = config;
       return piWebConfigResponse(config);
     },
+  };
+}
+
+function appTestAgentProfile(dir: string): ActiveAgentProfileDescriptor {
+  return {
+    schemaVersion: 1,
+    revision: `sha256:${"a".repeat(64)}`,
+    command: "pi",
+    dir,
+    sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"],
   };
 }
 

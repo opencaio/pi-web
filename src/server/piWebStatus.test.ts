@@ -14,6 +14,7 @@ const originalDockerRuntime = process.env["PI_WEB_DOCKER_RUNTIME"];
 const originalDockerMode = process.env["PI_WEB_DOCKER_MODE"];
 const originalDockerInstallDir = process.env["PI_WEB_DOCKER_INSTALL_DIR"];
 const originalDockerDevRepoRoot = process.env["PI_WEB_DOCKER_DEV_REPO_ROOT"];
+const originalAgentDir = process.env["PI_WEB_AGENT_DIR"];
 
 afterEach(() => {
   restoreEnv("PI_WEB_SKIP_VERSION_CHECK", originalSkipVersionCheck);
@@ -23,6 +24,7 @@ afterEach(() => {
   restoreEnv("PI_WEB_DOCKER_MODE", originalDockerMode);
   restoreEnv("PI_WEB_DOCKER_INSTALL_DIR", originalDockerInstallDir);
   restoreEnv("PI_WEB_DOCKER_DEV_REPO_ROOT", originalDockerDevRepoRoot);
+  restoreEnv("PI_WEB_AGENT_DIR", originalAgentDir);
   vi.restoreAllMocks();
 });
 
@@ -64,9 +66,32 @@ describe("PI WEB status", () => {
         capabilities: [],
       });
 
-      const status = await getPiWebVersionStatus(daemon, { agentCommand: "alt-agent", agentDir });
+      const status = await getPiWebVersionStatus(daemon, { activeAgentProfile: activeProfile("a", "alt-agent", agentDir) });
 
       expect(status.components.sessiond.installation).toMatchObject({ kind: "pi-package", source: process.cwd(), scope: "user" });
+    } finally {
+      await rm(agentDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not fall back to the web process environment when no active profile is available", async () => {
+    disableDockerRuntimeEnv();
+    const agentDir = await tempHome();
+    try {
+      await installConfiguredPiWebPackage(agentDir);
+      process.env["PI_WEB_AGENT_DIR"] = agentDir;
+      const daemon = daemonWithRuntime({
+        component: "sessiond",
+        label: "Session daemon",
+        runtimeVersion: "1.202605.7",
+        available: true,
+        capabilities: [],
+      });
+
+      const status = await getPiWebVersionStatus(daemon);
+
+      expect(status.components.web.installation?.kind).not.toBe("pi-package");
+      expect(status.components.sessiond.installation?.kind).not.toBe("pi-package");
     } finally {
       await rm(agentDir, { recursive: true, force: true });
     }
@@ -159,6 +184,19 @@ describe("PI WEB status", () => {
     expect(status.components.sessiond.stale).toBe(true);
     expect(status.components.sessiond.installation).toMatchObject({ kind: "pi-package", source: "npm:@jmfederico/pi-web", scope: "user" });
     expect(status.messages.map((message) => message.id)).toContain("sessiond-stale");
+  });
+
+  it("suppresses Pi package update planning without an active companion command", async () => {
+    const hasCommand = vi.fn(() => Promise.resolve(true));
+
+    const updateCommand = await updateCommandFor(
+      { kind: "pi-package", source: "npm:@jmfederico/pi-web", scope: "user", path: "/tmp/pi-web" },
+      "pi-web restart",
+      { agentCommand: undefined, hasCommand },
+    );
+
+    expect(updateCommand).toBeUndefined();
+    expect(hasCommand).not.toHaveBeenCalled();
   });
 
   it("shell-quotes pi-package agent update commands", async () => {
@@ -275,6 +313,16 @@ describe("PI WEB status", () => {
     }
   });
 });
+
+function activeProfile(revisionCharacter: string, command: string, dir: string) {
+  return {
+    schemaVersion: 1 as const,
+    revision: `sha256:${revisionCharacter.repeat(64)}`,
+    command,
+    dir,
+    sessionDirEnvKeys: ["PI_WEB_AGENT_SESSION_DIR"],
+  };
+}
 
 function npmVersionResponse(version: string): Response {
   return new Response(JSON.stringify({ version }), { status: 200, headers: { "content-type": "application/json" } });
