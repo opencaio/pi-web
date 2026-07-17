@@ -364,9 +364,12 @@ describe("PiSessionService", () => {
         child.emit({ type: "agent_start" });
         child.session.isStreaming = false;
         child.emit({ type: "agent_end" });
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        // The completion notice is delivered via the async custom-message path;
+        // wait for it rather than sleeping a fixed interval.
+        await vi.waitFor(() => {
+          expect(parent.calls.sendCustomMessage).toHaveLength(1);
+        });
 
-        expect(parent.calls.sendCustomMessage).toHaveLength(1);
         expect(parent.calls.sendCustomMessage[0]?.message.content).toContain("Subsession child-1 stopped working");
         expect(delegationCapabilities).toEqual([false, true]);
         expect(open).toHaveBeenCalledWith(parentFile);
@@ -429,10 +432,12 @@ describe("PiSessionService", () => {
         child.emit({ type: "agent_start" });
         child.session.isStreaming = false;
         child.emit({ type: "agent_end" });
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        // Wait for the validated parent to be notified via the async path.
+        await vi.waitFor(() => {
+          expect(parent.calls.sendCustomMessage).toHaveLength(1);
+        });
 
         expect(fork.calls.sendCustomMessage).toHaveLength(0);
-        expect(parent.calls.sendCustomMessage).toHaveLength(1);
         expect(open).toHaveBeenCalledWith(parentFile);
         await service.dispose();
       } finally {
@@ -484,7 +489,9 @@ describe("PiSessionService", () => {
         child.emit({ type: "agent_start" });
         child.session.isStreaming = false;
         child.emit({ type: "agent_end" });
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        // Let the async relink path settle, then confirm it stayed inert and
+        // never notified the parent.
+        await new Promise<void>((resolve) => setImmediate(resolve));
 
         expect(parent.calls.sendCustomMessage).toHaveLength(0);
         await service.dispose();
@@ -551,7 +558,9 @@ describe("PiSessionService", () => {
         copiedChild.emit({ type: "agent_start" });
         copiedChild.session.isStreaming = false;
         copiedChild.emit({ type: "agent_end" });
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        // Let the async relink path settle, then confirm the copied child never
+        // notified the verified parent.
+        await new Promise<void>((resolve) => setImmediate(resolve));
         expect(parent.calls.sendCustomMessage).toHaveLength(0);
 
         await expect(service.checkSubsession("parent-1", "child-1", parentFile)).resolves.toMatchObject({
@@ -629,10 +638,12 @@ describe("PiSessionService", () => {
         child.emit({ type: "agent_start" });
         child.session.isStreaming = false;
         child.emit({ type: "agent_end" });
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        // Wait for the verified parent to be notified via the async path.
+        await vi.waitFor(() => {
+          expect(parent.calls.sendCustomMessage).toHaveLength(1);
+        });
 
         expect(copiedParent.calls.sendCustomMessage).toHaveLength(0);
-        expect(parent.calls.sendCustomMessage).toHaveLength(1);
         expect(parent.calls.sendCustomMessage[0]?.message.content).toContain("Subsession child-1 stopped working");
         expect(open).toHaveBeenCalledWith(parentFile);
         await service.dispose();
@@ -686,7 +697,8 @@ describe("PiSessionService", () => {
         child.emit({ type: "agent_start" });
         child.session.isStreaming = false;
         child.emit({ type: "agent_end" });
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        // Let the async relink path settle, then confirm it stayed inert.
+        await new Promise<void>((resolve) => setImmediate(resolve));
 
         expect(parent.calls.sendCustomMessage).toHaveLength(0);
         expect(open).not.toHaveBeenCalledWith(parentFile);
@@ -736,7 +748,8 @@ describe("PiSessionService", () => {
         child.emit({ type: "agent_start" });
         child.session.isStreaming = false;
         child.emit({ type: "agent_end" });
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        // Let the async relink path settle, then confirm it stayed inert.
+        await new Promise<void>((resolve) => setImmediate(resolve));
 
         expect(parent.calls.sendCustomMessage).toHaveLength(0);
         expect(open).not.toHaveBeenCalledWith(actualParentFile);
@@ -773,7 +786,8 @@ describe("PiSessionService", () => {
       child.emit({ type: "agent_start" });
       child.session.isStreaming = false;
       child.emit({ type: "agent_end" });
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      // Let the async relink path settle, then confirm it stayed inert.
+      await new Promise<void>((resolve) => setImmediate(resolve));
 
       expect(open).not.toHaveBeenCalledWith(parentFile);
       await expect(service.listSubsessions("parent-1")).resolves.toEqual([]);
@@ -794,9 +808,11 @@ describe("PiSessionService", () => {
       child.session.isStreaming = false;
       child.emit({ type: "agent_end" }); // fire once
       child.emit({ type: "turn_end" }); // must not re-notify
-      await new Promise((resolve) => setTimeout(resolve, 20)); // the parent notification is delivered via the async custom-message path
-
-      expect(parent.calls.sendCustomMessage).toHaveLength(1);
+      // The parent notification is delivered via the async custom-message path;
+      // wait for the single delivery (turn_end must not add a second).
+      await vi.waitFor(() => {
+        expect(parent.calls.sendCustomMessage).toHaveLength(1);
+      });
       expect(parent.calls.sendCustomMessage[0]?.message.content).toContain("Subsession child-1 stopped working");
       expect(parent.calls.sendCustomMessage[0]?.message.content).toContain("--- SUBSESSION OUTPUT: child-1 ---\nall done");
       expect(parent.calls.sendCustomMessage[0]?.message.customType).toBe("subsession.completion");
@@ -818,7 +834,10 @@ describe("PiSessionService", () => {
       child.emit({ type: "agent_start" });
       child.session.isStreaming = false;
       child.emit({ type: "agent_end" });
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      // Wait for the completion notice to be delivered via the async path.
+      await vi.waitFor(() => {
+        expect(parent.calls.sendCustomMessage).toHaveLength(1);
+      });
 
       expect(parent.calls.sendCustomMessage[0]?.message.content).toBe(
         "Subsession child-1 stopped working (idle).\nNo other tracked subsessions are working.\n\nOutput from subsession child-1 was too long for this completion notice and was omitted. Call check_subsession with sessionId \"child-1\" to retrieve the final output.",
@@ -847,7 +866,10 @@ describe("PiSessionService", () => {
 
       first.session.isStreaming = false;
       first.emit({ type: "agent_end" });
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      // Wait for the first completion notice before asserting its content.
+      await vi.waitFor(() => {
+        expect(parent.calls.sendCustomMessage).toHaveLength(1);
+      });
 
       expect(parent.calls.sendCustomMessage[0]?.message.content).toBe(
         "Subsession child-1 stopped working (idle).\nStill working: child-2. Continue working, or call yield_to_subsessions alone and last at the next join point. Further completion notices arrive automatically; do not poll.\n\n--- SUBSESSION OUTPUT: child-1 ---\n(no output)",
@@ -855,7 +877,10 @@ describe("PiSessionService", () => {
 
       second.session.isStreaming = false;
       second.emit({ type: "agent_end" });
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      // Wait for the second completion notice before asserting its content.
+      await vi.waitFor(() => {
+        expect(parent.calls.sendCustomMessage).toHaveLength(2);
+      });
 
       expect(parent.calls.sendCustomMessage[1]?.message.content).toBe(
         "Subsession child-2 stopped working (idle).\nNo other tracked subsessions are working.\n\n--- SUBSESSION OUTPUT: child-2 ---\n(no output)",
@@ -878,9 +903,12 @@ describe("PiSessionService", () => {
 
       // Once the session settles, the periodic heartbeat re-check notifies.
       child.session.isStreaming = false;
-      await new Promise((resolve) => setTimeout(resolve, 40));
+      // The periodic heartbeat (heartbeatIntervalMs: 10) re-checks and notifies
+      // once the child settles; wait for that delivery rather than sleeping.
+      await vi.waitFor(() => {
+        expect(parent.calls.sendCustomMessage).toHaveLength(1);
+      });
 
-      expect(parent.calls.sendCustomMessage).toHaveLength(1);
       expect(parent.calls.sendCustomMessage[0]?.message.content).toContain("Subsession child-1 stopped working");
       await service.dispose();
     });
@@ -896,7 +924,9 @@ describe("PiSessionService", () => {
       parent.calls.sendCustomMessage.length = 0;
 
       await service.archive("child-1");
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      // Let any pending notification settle, then confirm the archived child
+      // never notified the parent.
+      await new Promise<void>((resolve) => setImmediate(resolve));
 
       expect(parent.calls.sendCustomMessage).toHaveLength(0);
       await service.dispose();
